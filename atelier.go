@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 )
 
@@ -40,6 +41,7 @@ type Part struct {
 
 // Atelier : données transmises à la page (globalThis.ATELIER).
 type Atelier struct {
+	Mode       string            `json:"mode"` // "" (questions) ou "libre" (pages libres seulement)
 	Meta       map[string]string `json:"meta"`
 	Parts      []Part            `json:"parts"`
 	Slug       string            `json:"slug"`
@@ -121,8 +123,13 @@ func ParseQuestions(text string) (meta map[string]string, parts []Part, warnings
 			}
 			_, q, _ := strings.Cut(line, "Q:")
 			q = strings.TrimSpace(q)
-			star := strings.HasPrefix(q, "★")
-			q = strings.TrimSpace(strings.TrimLeft(q, "★"))
+			// Question prioritaire : « * » en tête (« ★ » accepté pour les anciens fichiers ; « ** » = gras, pas une priorité)
+			star := false
+			if strings.HasPrefix(q, "★") {
+				star, q = true, strings.TrimSpace(strings.TrimPrefix(q, "★"))
+			} else if strings.HasPrefix(q, "*") && !strings.HasPrefix(q, "**") {
+				star, q = true, strings.TrimSpace(strings.TrimPrefix(q, "*"))
+			}
 			section.Questions = append(section.Questions, Question{
 				ID: fmt.Sprintf("%s-%d", section.Code, len(section.Questions)+1), Text: q, Star: star, Relances: []string{},
 			})
@@ -137,8 +144,11 @@ func ParseQuestions(text string) (meta map[string]string, parts []Part, warnings
 			warnings = append(warnings, fmt.Sprintf("ligne %d ignorée : %s", n+1, strings.TrimSpace(line)))
 		}
 	}
-	if len(parts) == 0 {
-		return nil, nil, nil, fmt.Errorf("aucune partie trouvée (une ligne « # Partie … » est nécessaire)")
+	if len(parts) == 0 && !estLibre(meta) {
+		return nil, nil, nil, fmt.Errorf("aucune partie trouvée (une ligne « # Partie … » est nécessaire, ou « mode: libre » dans l'en-tête)")
+	}
+	if parts == nil {
+		parts = []Part{}
 	}
 	return meta, parts, warnings, nil
 }
@@ -168,8 +178,14 @@ func LoadAtelier(dir string) (*Atelier, []string, error) {
 	client := meta["client"]
 	if client == "" {
 		client = "client"
+		if estLibre(meta) {
+			client = "notes"
+		}
 	}
 	a := &Atelier{Meta: meta, Parts: parts, Slug: slugify(client + "-" + name), Dossier: name}
+	if estLibre(meta) {
+		a.Mode = "libre"
+	}
 	a.StorageKey = "decideom-" + a.Slug
 	a.PromptCR = buildPrompt(meta)
 	return a, warnings, nil
@@ -185,9 +201,18 @@ func (a *Atelier) QuestionCount() (sections, questions int) {
 	return
 }
 
+// estLibre : notes libres (« mode: libre » dans l'en-tête), sans questions préparées.
+func estLibre(meta map[string]string) bool {
+	return strings.EqualFold(meta["mode"], "libre")
+}
+
 func buildPrompt(m map[string]string) string {
 	prompt, _ := embedded.ReadFile("prompt-compte-rendu.md")
-	modele, _ := embedded.ReadFile("modele-compte-rendu.md")
+	nomModele := "modele-compte-rendu.md"
+	if estLibre(m) {
+		nomModele = "modele-compte-rendu-libre.md"
+	}
+	modele, _ := embedded.ReadFile(nomModele)
 	ctx := m["contexte"]
 	if ctx == "" {
 		ctx = "non précisé"
@@ -228,8 +253,61 @@ func (a *Atelier) Generate(dir string) (notes []string, err error) {
 	if err := os.MkdirAll(filepath.Join(dir, "sorties"), 0o755); err != nil {
 		return nil, err
 	}
-	notes = append(notes, a.generateMarp(filepath.Join(dir, "marp"))...)
+	if a.Mode != "libre" { // pas de slides pour des notes libres
+		notes = append(notes, a.generateMarp(filepath.Join(dir, "marp"))...)
+	}
 	return notes, nil
+}
+
+// CreerNotesLibres crée <base>/AAAA-MM-JJ_HHhMM-<titre>/questions.md (en-tête seul, « mode: libre »)
+// et renvoie le dossier créé.
+func CreerNotesLibres(base, titre, client string, now time.Time) (string, error) {
+	titre, client = nettoyerChamp(titre), nettoyerChamp(client)
+	if titre == "" {
+		titre = "Notes du " + now.Format("02/01/2006")
+	}
+	nom := now.Format("2006-01-02_15h04")
+	if s := slugify(titre); s != "" {
+		if len(s) > 50 {
+			s = strings.Trim(s[:50], "-")
+		}
+		nom += "-" + s
+	}
+	dir := filepath.Join(base, nom)
+	for i := 2; ; i++ { // jamais d'écrasement d'un dossier existant
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			break
+		}
+		dir = filepath.Join(base, fmt.Sprintf("%s-%d", nom, i))
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	contenu := fmt.Sprintf(`---
+atelier: %s
+client: %s
+mission:
+animateurs:
+contexte:
+mode: libre
+---
+
+<!--
+Notes libres Greffier : pas de questions préparées, on prend des notes page par page.
+Les champs ci-dessus (mission, animateurs, contexte) sont repris dans le prompt du compte rendu :
+les compléter améliore le CR. Après modification : recharger la page.
+-->
+`, titre, client)
+	if err := os.WriteFile(filepath.Join(dir, "questions.md"), []byte(contenu), 0o644); err != nil {
+		return "", err
+	}
+	return dir, nil
+}
+
+// nettoyerChamp : une seule ligne, sans « --- » qui casserait l'en-tête.
+func nettoyerChamp(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	return strings.TrimSpace(strings.ReplaceAll(s, "---", "—"))
 }
 
 func copyEmbedded(root, dest string) error {

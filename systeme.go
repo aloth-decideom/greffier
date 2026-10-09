@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -34,7 +35,8 @@ func nomSysteme() string {
 var errAnnule = errors.New("annulé")
 
 // choisirDossier ouvre le sélecteur de dossier du système et renvoie le chemin choisi.
-func choisirDossier() (string, error) {
+// creation : autoriser la création d'un nouveau dossier depuis le sélecteur (Windows).
+func choisirDossier(invite string, creation bool) (string, error) {
 	var cmd *exec.Cmd
 	switch runtime.GOOS {
 	case "windows":
@@ -43,18 +45,18 @@ func choisirDossier() (string, error) {
 			`Add-Type -AssemblyName System.Windows.Forms;` +
 			`$o=New-Object System.Windows.Forms.Form -Property @{TopMost=$true;ShowInTaskbar=$false};` +
 			`$f=New-Object System.Windows.Forms.FolderBrowserDialog;` +
-			`$f.Description='Choisir le dossier de l''atelier (celui qui contient questions.md)';` +
-			`$f.ShowNewFolderButton=$false;` +
+			`$f.Description='` + strings.ReplaceAll(invite, "'", "''") + `';` +
+			`$f.ShowNewFolderButton=$` + strconv.FormatBool(creation) + `;` +
 			`if($f.ShowDialog($o) -eq 'OK'){[Console]::Out.Write($f.SelectedPath)}`
 		cmd = exec.Command("powershell", "-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-Command", ps)
 	case "darwin":
 		cmd = exec.Command("osascript", "-e",
-			`POSIX path of (choose folder with prompt "Choisir le dossier de l'atelier (celui qui contient questions.md)")`)
+			`POSIX path of (choose folder with prompt "`+strings.ReplaceAll(invite, `"`, `'`)+`")`)
 	default:
 		if p, err := exec.LookPath("zenity"); err == nil {
-			cmd = exec.Command(p, "--file-selection", "--directory", "--title=Choisir le dossier de l'atelier")
+			cmd = exec.Command(p, "--file-selection", "--directory", "--title="+invite)
 		} else if p, err := exec.LookPath("kdialog"); err == nil {
-			cmd = exec.Command(p, "--getexistingdirectory", os.Getenv("HOME"), "--title", "Choisir le dossier de l'atelier")
+			cmd = exec.Command(p, "--getexistingdirectory", os.Getenv("HOME"), "--title", invite)
 		} else {
 			return "", errors.New("aucun sélecteur de dossier disponible (installer zenity ou kdialog) : coller le chemin à la main")
 		}
@@ -128,5 +130,17 @@ func dossiersDeRecherche() []string {
 	if wd, err := os.Getwd(); err == nil {
 		l = append(l, wd)
 	}
-	return l
+	return append(l, dossierNotesParDefaut())
+}
+
+// dossierNotesParDefaut : où sont créées les notes libres (Documents/Greffier, sinon ~/Greffier).
+func dossierNotesParDefaut() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(os.TempDir(), "Greffier")
+	}
+	if st, err := os.Stat(filepath.Join(home, "Documents")); err == nil && st.IsDir() {
+		return filepath.Join(home, "Documents", "Greffier")
+	}
+	return filepath.Join(home, "Greffier")
 }

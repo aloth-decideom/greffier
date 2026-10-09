@@ -4,7 +4,7 @@
 //   - enregistre les notes en continu dans <atelier>/sorties/ ;
 //   - régénère outil/, prompt-cr.md et marp/ à partir de questions.md.
 //
-// Usage : double-clic, ou   greffier [dossier-atelier] [--port 8770] [--no-open] [--generer]
+// Usage : double-clic, ou   greffier [dossier-atelier] [--port 8770] [--no-open] [--generer] [--sans-maj]
 // Compilation : voir compiler.sh (ou la GitHub Action « Binaires greffier »).
 package main
 
@@ -25,7 +25,7 @@ import (
 	"time"
 )
 
-//go:embed app lanceur.html prompt-compte-rendu.md modele-compte-rendu.md marp/decideom.css
+//go:embed app lanceur.html prompt-compte-rendu.md modele-compte-rendu.md modele-compte-rendu-libre.md marp/decideom.css
 var embedded embed.FS
 
 var version = "dev" // renseignée à la compilation (-ldflags "-X main.version=…")
@@ -35,6 +35,7 @@ func main() {
 	port := flag.Int("port", 8770, "port local (garder le même : le navigateur y range ses données)")
 	noOpen := flag.Bool("no-open", false, "ne pas ouvrir le navigateur")
 	generer := flag.Bool("generer", false, "générer les fichiers de l'atelier (outil/, prompt-cr.md, marp/) puis quitter")
+	sansMaj := flag.Bool("sans-maj", os.Getenv("GREFFIER_SANS_MAJ") != "", "ne pas vérifier s'il existe une nouvelle version (aussi : GREFFIER_SANS_MAJ=1)")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Greffier DecideOm %s\nUsage : greffier [dossier-atelier] [options]\n", version)
 		flag.PrintDefaults()
@@ -95,6 +96,9 @@ func main() {
 	}
 	if !*noOpen {
 		go func() { time.Sleep(400 * time.Millisecond); ouvrirNavigateur(url) }()
+	}
+	if !*sansMaj {
+		go srv.Maj.Verifier(version)
 	}
 	server := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {

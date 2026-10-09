@@ -51,22 +51,51 @@
   .msg.info { background: #f1f8f4; color: var(--ok); border: 1px solid #b9d8c6; }
   .aide { font-size: 13px; color: var(--texte); line-height: 1.6; }
   .aide code { background: var(--fond); border: 1px solid var(--ligne); border-radius: 4px; padding: 1px 6px; font-size: 12px; }
-  @media (max-width: 700px) { .actions { grid-template-columns: 1fr; } .carte { grid-template-columns: 1fr; } }
+  .libre { padding: 20px 22px; border-radius: 12px; margin-bottom: 34px; }
+  .libre h2 { border: 0; padding: 0; margin: 0 0 4px; }
+  .libre .sous { font-size: 13.5px; color: var(--texte); margin-bottom: 14px; }
+  .libre .champs { display: grid; grid-template-columns: 2fr 1fr auto; gap: 10px; }
+  .libre input { min-width: 0; border: 1.5px solid var(--ligne); border-radius: 10px; padding: 12px 14px; background: var(--fond); font-size: 14px; }
+  .libre input:focus { outline: none; border-color: var(--rouge); }
+  .libre .ou { font-size: 12.5px; color: var(--gris); margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .libre .ou code { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+  .lien { border: 0; background: none; padding: 0; color: var(--rouge); text-decoration: underline; font-size: 12.5px; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 600; color: #fff; background: var(--tag-action); border-radius: 999px; padding: 1px 8px; margin-left: 8px; vertical-align: 2px; }
+  .maj { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding: 12px 16px; border-radius: 10px; margin-bottom: 22px; font-size: 14px; background: #eef3fa; border: 1px solid #98B3D7; color: var(--encre); }
+  .maj a { color: var(--rouge); font-weight: 600; }
+  .maj a.btn { color: #fff; text-decoration: none; padding: 8px 14px; font-size: 14px; }
+  [hidden] { display: none !important; }
+  .version { margin-top: 26px; font-size: 12px; color: var(--gris); }
+  @media (max-width: 700px) { .actions, .libre .champs { grid-template-columns: 1fr; } .carte { grid-template-columns: 1fr; } }
 </style>
 </head>
 <body>
 <header class="cartouche"><div class="wrap"><img src="/static/img/logo-decideom.png" alt="DecideOm"><span class="tag">Solutions Data &amp; IA</span><button class="btn sec stop" id="arreter" title="Arrête Greffier">⏻ Arrêter l'application</button></div></header>
 <main class="wrap">
-  <div class="titre"><span class="dots9"></span><div class="titre-dm"><h1>Greffier<b>Choisir un atelier</b></h1><p>Sélectionne le dossier de l'atelier (celui qui contient <code>questions.md</code>). Les notes y seront enregistrées en continu, dans <code>sorties/</code>.</p></div></div>
+  <div class="titre"><span class="dots9"></span><div class="titre-dm"><h1>Greffier<b>Prendre des notes</b></h1><p>Notes libres, ou atelier préparé (dossier qui contient <code>questions.md</code>). Les notes sont enregistrées en continu sur le disque, dans <code>sorties/</code>.</p></div></div>
 
+  <div class="maj" id="maj" hidden></div>
   <div class="msg" id="msg"></div>
+
+  <section class="libre cartouche">
+    <h2>✏️ Notes libres</h2>
+    <div class="sous">Sans questions préparées : une page par sujet, enregistrée en continu, puis compte rendu par IA comme pour un atelier.</div>
+    <div class="champs">
+      <input id="libreTitre" placeholder="Titre (ex. Point hebdo DSI)">
+      <input id="libreClient" placeholder="Client (facultatif)">
+      <button class="btn" id="libreGo">Démarrer</button>
+    </div>
+    <div class="ou">Enregistré dans <code id="libreBase">…</code><button class="lien" id="libreChanger">Changer…</button></div>
+  </section>
+
+  <h2>Atelier à questions</h2>
 
   <div class="actions">
     <button class="btn" id="parcourir">📂 Parcourir…</button>
     <div class="chemin"><input id="chemin" placeholder="…ou colle le chemin du dossier (ex. C:\Missions\Client\atelier-01)"><button class="btn sec" id="ouvrirChemin">Ouvrir</button></div>
   </div>
 
-  <h2>Ateliers récents et à proximité</h2>
+  <h2>Récents et à proximité</h2>
   <div class="liste" id="liste"><div class="vide">Recherche…</div></div>
 
   <div class="aide">
@@ -75,6 +104,7 @@
     · Pour modifier les questions : édite <code>questions.md</code> dans le dossier de l'atelier, puis recharge la page de l'atelier.<br>
     · Pour un nouvel atelier : copie un dossier d'atelier existant et adapte son <code>questions.md</code>.
   </div>
+  <div class="version" id="version"></div>
 </main>
 <script>
 (function () {
@@ -129,10 +159,55 @@
     document.querySelector("main").innerHTML = `<div class="arrete"><h1>Application arrêtée</h1><p>Tu peux fermer cet onglet. Pour reprendre, relance Greffier.</p></div>`;
     b.remove();
   };
+  // Notes libres : dossier daté créé dans le dossier de base (Documents/Greffier par défaut).
+  let libreBase = "";
+  const dateFr = new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+  $("libreTitre").placeholder = `Titre (par défaut : Notes du ${dateFr})`;
+  $("libreChanger").onclick = async () => {
+    try {
+      const r = await post("/api/parcourir", { notes: true });
+      if (r.chemin) { libreBase = r.chemin; $("libreBase").textContent = r.chemin; }
+      else if (r.erreur && r.erreur !== "annulé") msg(r.erreur);
+    } catch (e) { msg("L'application ne répond pas : est-elle toujours lancée ?"); }
+  };
+  $("libreGo").onclick = async () => {
+    const b = $("libreGo");
+    b.disabled = true; b.textContent = "Création…";
+    try {
+      const r = await post("/api/notes-libres", { titre: $("libreTitre").value.trim() || `Notes du ${dateFr}`, client: $("libreClient").value.trim(), base: libreBase });
+      if (r.url) { location.href = r.url; return; }
+      msg(r.erreur || "Impossible de créer les notes.");
+    } catch (e) { msg("L'application ne répond pas : est-elle toujours lancée ?"); }
+    b.disabled = false; b.textContent = "Démarrer";
+  };
+  ["libreTitre", "libreClient"].forEach((id) => $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") $("libreGo").click(); }));
+
+  // Nouvelle version sur GitHub (vérifiée par l'application au démarrage ; rien si hors ligne)
+  const NOMS = { windows: "Windows", macos: "macOS", linux: "Linux" };
+  let systeme = "";
+  function afficherVersion(v) {
+    $("version").textContent = `Greffier ${v.version}`;
+    if (!v.nouvelle) return;
+    const m = $("maj");
+    m.innerHTML = `<span>⬆ <b>Greffier ${esc(v.derniere)}</b> est disponible (tu as ${esc(v.version)}).</span>` +
+      (v.telechargement ? `<a class="btn" href="${esc(v.telechargement)}" target="_blank" rel="noopener">Télécharger${NOMS[systeme] ? " pour " + NOMS[systeme] : ""}</a>` : "") +
+      `<a href="${esc(v.page)}" target="_blank" rel="noopener">Nouveautés</a>` +
+      `<span style="font-size:12.5px;color:var(--texte)">Remplace l'ancien fichier par le nouveau : les notes restent dans les dossiers d'atelier.</span>`;
+    m.hidden = false;
+  }
+  // La vérification peut finir juste après l'ouverture de la page : on redemande une fois.
+  const lireVersion = (encore) => fetch("/api/version").then((r) => r.json()).then((v) => {
+    afficherVersion(v);
+    if (!v.derniere && encore) setTimeout(() => lireVersion(false), 5000);
+  }).catch(() => {});
+
   $("ouvrirChemin").onclick = () => ouvrir($("chemin").value.trim(), $("ouvrirChemin"));
   $("chemin").addEventListener("keydown", (e) => { if (e.key === "Enter") $("ouvrirChemin").click(); });
 
   fetch("/api/ateliers").then((r) => r.json()).then((d) => {
+    systeme = d.systeme;
+    lireVersion(true);
+    if (d.dossierNotes) $("libreBase").textContent = d.dossierNotes;
     if (d.systeme === "windows") $("chemin").placeholder = "…ou colle le chemin du dossier (ex. C:\\Missions\\Client\\atelier-01)";
     else $("chemin").placeholder = "…ou colle le chemin du dossier (ex. ~/Missions/Client/atelier-01)";
     const l = $("liste");
@@ -141,8 +216,8 @@
     d.ateliers.forEach((a) => {
       const c = document.createElement("div");
       c.className = "carte cartouche";
-      c.innerHTML = `<div><div class="t">${a.client ? `<b>${esc(a.client)}</b>` : ""}${esc(a.titre || a.nom)}</div>
-        <div class="m">${a.recent ? "Récent" : "Trouvé à côté de l'application"}${a.questions ? ` · ${a.questions} questions` : ""}</div>
+      c.innerHTML = `<div><div class="t">${a.client ? `<b>${esc(a.client)}</b>` : ""}${esc(a.titre || a.nom)}${a.mode === "libre" ? '<span class="badge">Notes libres</span>' : ""}</div>
+        <div class="m">${a.recent ? "Récent" : "Trouvé sur le disque"}${a.mode !== "libre" && a.questions ? ` · ${a.questions} questions` : ""}</div>
         <div class="p">${esc(a.chemin)}</div>${a.erreur ? `<div class="e">⚠ ${esc(a.erreur)}</div>` : ""}</div>`;
       const b = document.createElement("button");
       b.className = "btn"; b.textContent = "Ouvrir"; b.disabled = !!a.erreur;

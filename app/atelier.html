@@ -68,6 +68,23 @@
   .sec-title .meta { color: var(--gris); font-weight: 400; font-size: .8em; }
   .question { font-family: var(--font-titre); font-size: clamp(24px, 2.9vw, 46px); font-weight: 500; color: var(--encre); line-height: 1.25; margin: 0; }
   .question .star { color: var(--rouge); }
+  input.page-title { width: 100%; border: 0; border-bottom: 2px dashed var(--ligne); background: none; padding: 0 0 4px; outline: none; }
+  input.page-title:focus { border-bottom-color: var(--rouge); }
+  input.page-title::placeholder { color: #b5b5bd; font-weight: 400; }
+  .toc .page { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; border: 0; background: none; padding: 5px 18px; font-size: 13px; color: var(--texte); }
+  .toc .page:hover { background: #eeeef2; }
+  .toc .page .dot { flex: none; }
+  .toc .page span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .toc .page.current { color: var(--rouge); font-weight: 600; }
+  .toc .page .x { margin-left: auto; flex: none; visibility: hidden; color: var(--gris); padding: 0 4px; border-radius: 4px; }
+  .toc .page:hover .x { visibility: visible; }
+  .toc .page .x:hover { color: #fff; background: var(--rouge-fonce); }
+  .toc .add-page { margin: 8px 18px 0; border: 1.5px dashed var(--ligne); background: none; border-radius: 8px; padding: 6px 10px; font-size: 13px; color: var(--gris); width: calc(100% - 36px); }
+  .toc .add-page:hover { border-color: var(--rouge); color: var(--rouge); }
+  .del-page { border: 1px solid var(--ligne); background: none; border-radius: 999px; padding: 6px 12px; font-size: 13px; color: var(--gris); }
+  .del-page:hover { border-color: var(--rouge-fonce); color: var(--rouge-fonce); }
+  .maj { grid-column: 1 / -1; font-size: 12px; color: var(--tag-action); text-decoration: none; font-weight: 600; }
+  .maj:hover { text-decoration: underline; }
   .relances { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
   .relances li { font-size: clamp(14px, 1.3vw, 20px); color: var(--gris); padding-left: 22px; position: relative; }
   .relances li::before { content: "↳"; position: absolute; left: 0; color: var(--rouge); }
@@ -131,7 +148,7 @@
 
   /* ---------- Mode écran projeté (2e fenêtre) ---------- */
   body.projection header.top, body.projection footer.nav, body.projection .tags, body.projection .action-fields,
-  body.projection textarea.answer, body.projection .relances { display: none !important; }
+  body.projection textarea.answer, body.projection .relances, body.projection .del-page { display: none !important; }
   body.projection .stage { padding: 6vh 7vw; }
   body.projection .question { font-size: clamp(28px, 3.6vw, 64px); }
   body.projection.client .answer-wrap { visibility: hidden; }
@@ -215,6 +232,7 @@
     <button class="wide" id="btnReset" title="Vider toutes les réponses et les photos">Nouvelle session</button>
     <button class="wide" id="btnStop" hidden title="Enregistre ce qui est en attente puis arrête Greffier">⏻ Arrêter l'application</button>
     <div class="warn" id="warn" hidden></div>
+    <a class="maj" id="maj" hidden target="_blank" rel="noopener"></a>
   </div>
 </aside>
 
@@ -226,6 +244,8 @@
     <span class="proj-badge" id="projBadge" hidden>📽 projection</span>
     <div class="chrono" id="chrono" title="Chronomètre de la partie en cours / temps prévu jusqu'à la fin de la section"></div>
     <span class="pos" id="pos"></span>
+    <button class="icon-btn" id="btnPage" title="Nouvelle page libre, pour un sujet hors questions (N)">＋ Page</button>
+    <button class="icon-btn" id="btnDelPage" hidden title="Supprimer cette page (Suppr ; ou Retour arrière dans une page vide)">🗑</button>
     <button class="icon-btn" id="btnRel" title="Afficher / masquer les relances (R)">↳</button>
     <button class="icon-btn" id="btnClient" title="Masquer les réponses à l'écran projeté (C)">👁</button>
     <button class="icon-btn" id="btnFull" title="Plein écran (F)">⛶</button>
@@ -235,6 +255,7 @@
   <section class="stage" id="stage">
     <div class="sec-title" id="secTitle"></div>
     <h2 class="question" id="question"></h2>
+    <input class="question page-title" id="pageTitle" hidden placeholder="Sujet de la page (facultatif)">
     <ul class="relances" id="relances"></ul>
     <div class="answer-wrap">
       <textarea class="answer" id="answer" placeholder="Réponse, faits, chiffres, citations… (Ctrl+Entrée : question suivante · Ctrl+V : coller une photo)"></textarea>
@@ -251,7 +272,7 @@
   <footer class="nav">
     <button id="prev">← Précédente</button>
     <span class="saved" id="saved">✓ enregistré</span>
-    <span class="hint">←/→ naviguer · Entrée saisir · Échap sortir · Alt+1…5 tags · I photo · P projection · S synthèse · ? aide</span>
+    <span class="hint">←/→ naviguer · Entrée saisir · Échap sortir · Alt+1…5 tags · N page libre · I photo · P projection · S synthèse · ? aide</span>
     <button class="next" id="next">Suivante →</button>
   </footer>
 </main>
@@ -275,10 +296,14 @@
     <tr><td><kbd>S</kbd></td><td>Synthèse (décisions, actions, risques…), aussi affichée à l'écran projeté</td></tr>
     <tr><td><kbd>R</kbd> · <kbd>C</kbd> · <kbd>M</kbd> · <kbd>F</kbd></td><td>Relances · masquer les réponses à l'écran projeté · sommaire · plein écran</td></tr>
     <tr><td><kbd>T</kbd></td><td>Démarrer / mettre en pause le chronomètre</td></tr>
+    <tr><td><kbd>N</kbd></td><td>Nouvelle page libre (sujet hors questions, ou page suivante en notes libres)</td></tr>
+    <tr><td><kbd>Suppr</kbd></td><td>Supprimer la page libre affichée (confirmation si elle contient des notes)</td></tr>
   </table>
   <div class="sub" style="margin-top:16px">Dans le champ de saisie</div>
   <table>
-    <tr><td><kbd>Ctrl</kbd>+<kbd>Entrée</kbd> · <kbd>PgDn</kbd></td><td>Question suivante</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Entrée</kbd> · <kbd>PgDn</kbd></td><td>Question suivante (en notes libres, sur la dernière page : nouvelle page)</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Maj</kbd>+<kbd>Entrée</kbd></td><td>Nouvelle page libre</td></tr>
+    <tr><td><kbd>Retour arrière</kbd> (page vide)</td><td>Supprimer la page vide et revenir à la précédente</td></tr>
     <tr><td><kbd>Alt</kbd>+<kbd>1</kbd> … <kbd>5</kbd></td><td>Basculer un tag</td></tr>
     <tr><td><kbd>Ctrl</kbd>+<kbd>V</kbd></td><td>Coller une image (capture d'écran, photo copiée)</td></tr>
     <tr><td><kbd>Échap</kbd></td><td>Sortir du champ</td></tr>
@@ -307,7 +332,8 @@
   const NC = NotesCore;
   const { TAGS, isAnswered, stamp } = NC;
   const DATA = globalThis.ATELIER;
-  const QS = NC.flatten(DATA);
+  const LIBRE = NC.isLibre(DATA);
+  let QS = NC.flatten(DATA);
   const KEY = DATA.storageKey || "decideom-atelier";
   const SLUG = DATA.slug || "atelier";
   const $ = (id) => document.getElementById(id);
@@ -315,8 +341,8 @@
   const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem(KEY + "-ui-" + k); localStorage.setItem(KEY + "-ui-" + k, v); } catch (e) { return null; } };
   function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2500); }
 
-  document.title = `${DATA.meta.client || ""} · ${DATA.meta.atelier || "Atelier"}`;
-  $("client").textContent = "× " + (DATA.meta.client || "");
+  document.title = [DATA.meta.client, DATA.meta.atelier || (LIBRE ? "Notes libres" : "Atelier")].filter(Boolean).join(" · ");
+  $("client").textContent = DATA.meta.client ? "× " + DATA.meta.client : "";
   $("atelier").textContent = DATA.meta.atelier || "Atelier";
 
   // =====================================================================
@@ -333,7 +359,7 @@
       if (m.type === "render") {
         clearTimeout(waiting); $("projWait").style.display = "none";
         const q = m.q;
-        $("secTitle").innerHTML = `<span class="dots9"></span><span>${esc(q.sectionCode)}. ${esc(q.sectionTitle)}</span>`;
+        $("secTitle").innerHTML = `<span class="dots9"></span><span>${q.sectionCode ? esc(q.sectionCode) + ". " : ""}${esc(q.sectionTitle)}</span>`;
         $("question").innerHTML = (q.star ? '<span class="star">★</span> ' : "") + esc(q.text);
         $("answerView").textContent = m.answer.text || "";
         $("photos").innerHTML = m.photos.map((p) => `<div class="photo"><img src="${p.src}" alt=""><span class="cap">${esc(p.caption)}</span></div>`).join("");
@@ -360,6 +386,9 @@
   const markdown = () => NC.exportMarkdown(DATA, store.state, { photoDir: "photos" });
   const saver = NC.createDiskSaver({ key: KEY, data: DATA, store, photos, markdown, onStatus: renderDisk });
   store.onChange(() => saver.schedule());
+  // Notes libres : toujours au moins une page.
+  if (LIBRE && !(store.state.pages || []).length) store.addPage();
+  QS = NC.flatten(DATA, store.state);
   photos.persistent.then((ok) => { if (!ok) { $("warn").hidden = false; $("warn").textContent = "⚠ Photos non conservées dans ce navigateur : exporte le .zip avant de fermer."; } });
 
   let idx = Math.min(QS.length - 1, Math.max(0, parseInt(pref("idx") || "0", 10) || 0));
@@ -370,12 +399,26 @@
   function buildToc() {
     const toc = $("toc");
     toc.innerHTML = "";
-    DATA.parts.forEach((part) => {
+    NC.allParts(DATA, store.state).forEach((part) => {
       const p = document.createElement("div");
       p.className = "part";
       p.textContent = part.title;
       toc.appendChild(p);
       part.sections.forEach((s) => {
+        if (s.libre) { // pages libres : une ligne par page, avec son titre
+          s.questions.forEach((q) => {
+            const b = document.createElement("button");
+            b.className = "page";
+            b.dataset.page = q.id;
+            b.innerHTML = `<span class="dot" data-q="${esc(q.id)}"></span><span>${esc(q.text)}</span><span class="x" title="Supprimer cette page">✕</span>`;
+            b.onclick = (e) => {
+              if (e.target.classList.contains("x")) removePage(q.id);
+              else go(QS.findIndex((x) => x.id === q.id));
+            };
+            toc.appendChild(b);
+          });
+          return;
+        }
         const b = document.createElement("button");
         b.className = "sec";
         b.dataset.sec = s.code;
@@ -395,6 +438,19 @@
         toc.appendChild(dots);
       });
     });
+    const add = document.createElement("button");
+    add.className = "add-page";
+    add.textContent = LIBRE ? "＋ Nouvelle page" : "＋ Page libre (hors questions)";
+    add.onclick = () => newPage();
+    toc.appendChild(add);
+  }
+  // Les pages ont changé (ajout, suppression, titre, import…) : liste et sommaire à recalculer.
+  function rebuild() {
+    const cur = QS[idx] && QS[idx].id;
+    QS = NC.flatten(DATA, store.state);
+    const i = QS.findIndex((q) => q.id === cur);
+    idx = i >= 0 ? i : Math.min(idx, QS.length - 1);
+    buildToc();
   }
   function refreshToc() {
     const cur = QS[idx];
@@ -404,10 +460,17 @@
       d.className = "dot" + (q.star ? " star" : "") + (isAnswered(a) ? " done" : "") + (a.photos.length ? " photo" : "") +
         (a.status === "skip" ? " skip" : "") + (a.status === "review" ? " review" : "") + (q.id === cur.id ? " current" : "");
     });
-    document.querySelectorAll(".toc .sec").forEach((b) => b.classList.toggle("current", b.dataset.sec === cur.section.code));
-    const done = QS.filter((q) => isAnswered(store.get(q.id))).length;
-    $("bar").style.width = (100 * done / QS.length) + "%";
-    $("barLabel").textContent = `${done} / ${QS.length} questions renseignées`;
+    document.querySelectorAll(".toc .sec").forEach((b) => b.classList.toggle("current", !cur.libre && b.dataset.sec === cur.section.code));
+    document.querySelectorAll(".toc .page").forEach((b) => b.classList.toggle("current", b.dataset.page === cur.id));
+    const qs = QS.filter((q) => !q.libre), nPages = QS.length - qs.length;
+    if (LIBRE) {
+      $("bar").style.width = "100%";
+      $("barLabel").textContent = `${nPages} page${nPages > 1 ? "s" : ""} de notes`;
+    } else {
+      const done = qs.filter((q) => isAnswered(store.get(q.id))).length;
+      $("bar").style.width = (100 * done / qs.length) + "%";
+      $("barLabel").textContent = `${done} / ${qs.length} questions renseignées` + (nPages ? ` · ${nPages} page${nPages > 1 ? "s" : ""} libre${nPages > 1 ? "s" : ""}` : "");
+    }
   }
 
   // ---------- Tags et statuts ----------
@@ -428,6 +491,11 @@
     b.onclick = () => toggleStatus(s);
     $("tags").appendChild(b);
   });
+  const delPage = document.createElement("button");
+  delPage.className = "del-page";
+  delPage.textContent = "🗑 Supprimer la page";
+  delPage.onclick = () => removePage();
+  $("tags").appendChild(delPage);
   function toggleTag(t) { store.toggleTag(QS[idx].id, t); renderAnswerMeta(); }
   function toggleStatus(s) { const a = store.get(QS[idx].id); store.set(QS[idx].id, { status: a.status === s ? "" : s }); renderAnswerMeta(); }
 
@@ -519,8 +587,23 @@
   function render() {
     const q = QS[idx];
     const s = q.section;
-    $("crumb").innerHTML = `${esc(q.part.title)} › <b>${s.code}. ${esc(s.title)}</b>`;
-    $("secTitle").innerHTML = `<span class="dots9"></span><span>${s.code}. ${esc(s.title)}</span><span class="meta">${s.minutes} min · ${esc(s.cible)} · ${q.id}</span>`;
+    if (q.libre) {
+      $("crumb").innerHTML = `${esc(q.part.title)} › <b>${esc(q.text)}</b>`;
+      $("secTitle").innerHTML = `<span class="dots9"></span><span>${LIBRE ? "Notes" : "Page libre"}</span><span class="meta">${q.id}</span>`;
+    } else {
+      const meta = [s.minutes ? s.minutes + " min" : "", s.cible, q.id].filter(Boolean).map(esc).join(" · ");
+      $("crumb").innerHTML = `${esc(q.part.title)} › <b>${s.code}. ${esc(s.title)}</b>`;
+      $("secTitle").innerHTML = `<span class="dots9"></span><span>${s.code}. ${esc(s.title)}</span><span class="meta">${meta}</span>`;
+    }
+    $("question").hidden = !!q.libre;
+    $("pageTitle").hidden = !q.libre;
+    delPage.hidden = !q.libre;
+    $("btnDelPage").hidden = !q.libre;
+    if (q.libre && document.activeElement !== $("pageTitle")) $("pageTitle").value = q.title || "";
+    $("pageTitle").placeholder = `Sujet de la page (facultatif, sinon « ${"Page " + q.id.slice(1)} »)`;
+    $("answer").placeholder = q.libre
+      ? "Notes… (Ctrl+Entrée : page suivante · Ctrl+Maj+Entrée : nouvelle page · Ctrl+V : coller une photo)"
+      : "Réponse, faits, chiffres, citations… (Ctrl+Entrée : question suivante · Ctrl+V : coller une photo)";
     $("question").innerHTML = (q.star ? '<span class="star">★</span> ' : "") + esc(q.text);
     $("relances").innerHTML = q.relances.map((r) => `<li>${esc(r)}</li>`).join("");
     const a = store.get(q.id);
@@ -529,7 +612,7 @@
     $("due").value = a.due;
     $("pos").textContent = `${idx + 1}/${QS.length}`;
     $("prev").disabled = idx === 0;
-    $("next").textContent = idx === QS.length - 1 ? "Synthèse →" : "Suivante →";
+    $("next").textContent = idx < QS.length - 1 ? (q.libre ? "Page suivante →" : "Suivante →") : LIBRE ? "＋ Nouvelle page" : "Synthèse →";
     renderAnswerMeta();
     renderChrono();
     renderPhotos();
@@ -545,10 +628,49 @@
   }
   function go(i) {
     if (i < 0) return;
-    if (i >= QS.length) { openSynth(); return; }
+    if (i >= QS.length) { if (LIBRE) newPage(); else openSynth(); return; }
     idx = i;
     render();
   }
+
+  // ---------- Pages libres ----------
+  function newPage() {
+    const page = store.addPage();
+    rebuild();
+    go(QS.findIndex((q) => q.id === page.id));
+    $("answer").focus();
+  }
+  // Page vide : rien à perdre, pas de confirmation (ex. trop de Ctrl+Entrée).
+  const pageVide = (q) => { const a = store.get(q.id); return !isAnswered(a) && !(q.title || "").trim() && !a.tags.length && !(a.who || a.due); };
+  // Supprime une page libre (la page affichée par défaut). versPrecedente : se placer ensuite sur la page d'avant.
+  async function removePage(id, versPrecedente) {
+    const q = id ? QS.find((x) => x.id === id) : QS[idx];
+    if (!q || !q.libre) return;
+    if (LIBRE && store.state.pages.length === 1 && pageVide(q)) return; // déjà la seule page, vide
+    const a = store.get(q.id);
+    const pos = QS.indexOf(q), courante = QS[idx] === q;
+    if (!pageVide(q)) {
+      const where = saver.active() ? "\n\nUne copie de la session est gardée dans sorties/historique/." : "";
+      if (!(await ask("Supprimer cette page ?", `« ${q.text} » et ses notes seront retirées de la session.${where}`, "Supprimer", "Annuler"))) return;
+      if (saver.active()) await saver.archive("avant-suppression-page");
+    }
+    for (const p of a.photos) { await photos.del(p.id); saver.delPhoto(p.file); }
+    store.removePage(q.id);
+    if (LIBRE && !store.state.pages.length) store.addPage();
+    rebuild();
+    if (courante) idx = Math.max(0, Math.min(versPrecedente ? pos - 1 : pos, QS.length - 1));
+    else if (pos < idx) idx--;
+    render();
+    toast(`Page « ${q.text} » supprimée`);
+  }
+  $("pageTitle").addEventListener("input", (e) => {
+    store.renamePage(QS[idx].id, e.target.value);
+    rebuild();
+    refreshToc();
+    $("crumb").innerHTML = `${esc(QS[idx].part.title)} › <b>${esc(QS[idx].text)}</b>`;
+    flashSaved();
+    sendProjection();
+  });
 
   // ---------- Saisie ----------
   function flashSaved() { $("saved").classList.add("show"); clearTimeout(flashSaved.t); flashSaved.t = setTimeout(() => $("saved").classList.remove("show"), 900); }
@@ -560,7 +682,7 @@
   $("metaDate").addEventListener("input", (e) => store.setMeta({ date: e.target.value }));
   $("metaPart").addEventListener("input", (e) => store.setMeta({ participants: e.target.value }));
   // Un autre onglet a modifié la session : on se recale (sauf si on est en train d'écrire ici).
-  store.onChange((st, external) => { if (external && document.activeElement !== $("answer")) render(); });
+  store.onChange((st, external) => { if (external && !editing()) { rebuild(); render(); } });
 
   // ---------- Chronomètre par partie ----------
   function chronoState() {
@@ -580,8 +702,8 @@
     const c = chronoState();
     const planned = plannedUntilCurrentSection();
     const el = $("chrono");
-    el.innerHTML = `${fmt(elapsedMs(c))} / ${planned} min <button title="Démarrer / pause (T)">${c.start ? "⏸" : "▶"}</button>`;
-    el.classList.toggle("late", elapsedMs(c) > planned * 60000);
+    el.innerHTML = `${fmt(elapsedMs(c))}${planned ? ` / ${planned} min` : ""} <button title="Démarrer / pause (T)">${c.start ? "⏸" : "▶"}</button>`;
+    el.classList.toggle("late", planned > 0 && elapsedMs(c) > planned * 60000);
     el.querySelector("button").onclick = toggleChrono;
   }
   function toggleChrono() {
@@ -620,11 +742,15 @@
     return html;
   }
   function openSynth() {
-    const done = QS.filter((q) => isAnswered(store.get(q.id))).length;
-    let html = `<h2>Synthèse de l'atelier</h2><div class="sub">${done} / ${QS.length} questions renseignées · à valider en séance</div>` + synthTables();
-    const missing = QS.filter((q) => q.star && !isAnswered(store.get(q.id)));
-    html += `<h3>★ Questions prioritaires non traitées (${missing.length})</h3>`;
-    html += missing.length ? `<ul>${missing.map((q) => `<li>${q.id} · ${esc(q.text)}</li>`).join("")}</ul>` : `<div class="empty">Aucune</div>`;
+    const qs = QS.filter((q) => !q.libre);
+    const done = qs.filter((q) => isAnswered(store.get(q.id))).length;
+    const avancement = LIBRE ? `${QS.length} page(s) de notes` : `${done} / ${qs.length} questions renseignées`;
+    let html = `<h2>Synthèse ${LIBRE ? "des notes" : "de l'atelier"}</h2><div class="sub">${avancement} · à valider en séance</div>` + synthTables();
+    if (!LIBRE) {
+      const missing = qs.filter((q) => q.star && !isAnswered(store.get(q.id)));
+      html += `<h3>★ Questions prioritaires non traitées (${missing.length})</h3>`;
+      html += missing.length ? `<ul>${missing.map((q) => `<li>${q.id} · ${esc(q.text)}</li>`).join("")}</ul>` : `<div class="empty">Aucune</div>`;
+    }
     $("synthPanel").innerHTML = `<button class="icon-btn close" data-close>✕</button>` + html;
     $("synth").classList.add("show");
     post({ type: "synth", html });
@@ -659,7 +785,7 @@
     for (const p of a.photos) ph.push({ src: await photoDataUrl(p.id), caption: p.caption || "" });
     post({
       type: "render",
-      q: { text: q.text, star: q.star, sectionCode: q.section.code, sectionTitle: q.section.title, num: idx + 1 },
+      q: { text: q.text, star: q.star, sectionCode: q.libre ? "" : q.section.code, sectionTitle: q.libre ? (LIBRE ? "Notes" : "Page libre") : q.section.title, num: idx + 1 },
       answer: { text: a.text },
       photos: ph,
       hideAnswers: document.body.classList.contains("hide-proj"),
@@ -697,7 +823,9 @@
       for (const [id, url] of Object.entries(obj.photos || {})) await photos.put(id, await NC.dataURLToBlob(url));
       urlCache.clear(); dataUrlCache.clear();
       store.load(state);
+      if (LIBRE && !store.state.pages.length) store.addPage();
       syncMeta();
+      rebuild();
       render();
       if (saver.active()) { await saver.syncPhotos(); await saver.flush(); }
       toast("Session importée");
@@ -712,7 +840,9 @@
     for (const p of allPhotos()) await photos.del(p.id);
     urlCache.clear(); dataUrlCache.clear();
     store.reset();
+    if (LIBRE) store.addPage();
     syncMeta();
+    rebuild();
     go(0);
   }
 
@@ -720,21 +850,22 @@
   async function buildReport() {
     const m = DATA.meta;
     const st = store.state;
-    const done = QS.filter((q) => isAnswered(store.get(q.id))).length;
+    const qs = QS.filter((q) => !q.libre);
+    const done = qs.filter((q) => isAnswered(store.get(q.id))).length;
     let h = `<div class="doc-brand"><img src="img/logo-decideom.png" alt="DecideOm"><div class="who"><b>${esc(m.client || "")}</b>${esc(m.mission || "")}</div></div>
-      <h1>Notes d'atelier<br>${esc(m.atelier || "")}</h1>
+      <h1>${LIBRE ? "Notes" : "Notes d'atelier"}<br>${esc(m.atelier || "")}</h1>
       <table class="meta"><tr><td>Date</td><td>${esc(st.meta.date || "")}</td></tr>
       <tr><td>Participants</td><td>${esc(st.meta.participants || "—")}</td></tr>
       <tr><td>Animation</td><td>${esc(m.animateurs || "")}</td></tr>
-      <tr><td>Avancement</td><td>${done} / ${QS.length} questions renseignées</td></tr></table>`;
+      <tr><td>Avancement</td><td>${LIBRE ? `${QS.length} page(s) de notes` : `${done} / ${qs.length} questions renseignées`}</td></tr></table>`;
     h += `<h2>Synthèse</h2>` + synthTables("t").replace(/<h3><span class="pill"[^>]*><\/span>/g, "<h3>");
     h += `<h2>Notes détaillées</h2>`;
-    for (const part of DATA.parts) {
+    for (const part of NC.allParts(DATA, store.state)) {
       const secs = part.sections.filter((s) => s.questions.some((q) => isAnswered(store.get(q.id))));
       if (!secs.length) continue;
-      h += `<h3>${esc(part.title)}</h3>`;
+      if (!LIBRE) h += `<h3>${esc(part.title)}</h3>`;
       for (const s of secs) {
-        h += `<h4>${s.code}. ${esc(s.title)}</h4>`;
+        if (!s.libre) h += `<h4>${s.code}. ${esc(s.title)}</h4>`;
         for (const q of s.questions) {
           const a = store.get(q.id);
           if (!isAnswered(a)) continue;
@@ -747,7 +878,7 @@
         }
       }
     }
-    const missing = QS.filter((q) => !isAnswered(store.get(q.id)));
+    const missing = qs.filter((q) => !isAnswered(store.get(q.id)));
     if (missing.length) h += `<h2>Questions non traitées</h2><ul>${missing.map((q) => `<li>${q.id} · ${q.star ? "★ " : ""}${esc(q.text)}</li>`).join("")}</ul>`;
     h += `<div class="foot">Document de travail généré le ${new Date().toLocaleString("fr-FR")} · DecideOm</div>`;
     return h;
@@ -772,6 +903,8 @@
   $("btnSynth").onclick = openSynth;
   $("btnProj").onclick = openProjection;
   $("btnHelp").onclick = () => $("help").classList.add("show");
+  $("btnPage").onclick = () => newPage();
+  $("btnDelPage").onclick = () => removePage();
   $("prev").onclick = () => go(idx - 1);
   $("next").onclick = () => go(idx + 1);
 
@@ -797,6 +930,12 @@
     if (anyOverlay()) { if (e.key === "Escape") closeOverlay(anyOverlay()); return; }
     if (editing()) {
       if (e.key === "Escape") { document.activeElement.blur(); e.preventDefault(); }
+      else if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && e.shiftKey) { e.preventDefault(); newPage(); }
+      else if (e.key === "Backspace" && document.activeElement === $("answer") && QS[idx].libre && pageVide(QS[idx]) && QS.length > 1) {
+        // Comme dans un traitement de texte : effacer une page vide ramène à la page précédente.
+        e.preventDefault();
+        removePage(null, true).then(() => { const t = $("answer"); t.focus(); t.setSelectionRange(t.value.length, t.value.length); });
+      }
       else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); go(idx + 1); $("answer").focus(); }
       else if (e.altKey && /^[1-5]$/.test(e.key)) { e.preventDefault(); toggleTag(TAGS[+e.key - 1].id); }
       return;
@@ -817,6 +956,8 @@
     else if (k === "m") $("btnSide").click();
     else if (k === "f") $("btnFull").click();
     else if (k === "t") toggleChrono();
+    else if (k === "n") { e.preventDefault(); newPage(); }
+    else if (e.key === "Delete" && QS[idx].libre) removePage();
     else if (e.key === "?") $("help").classList.add("show");
   });
 
@@ -877,7 +1018,7 @@
         await saver.archive("avant-restauration");   // écrit l'état du navigateur dans l'historique avant d'écraser
         await saver.restore(result.backup);
         urlCache.clear(); dataUrlCache.clear();
-        syncMeta(); render();
+        syncMeta(); rebuild(); render();
         toast("Session restaurée depuis le disque");
       } else {
         await saver.archiveSession(result.backup.session, "disque-remplace");
@@ -914,8 +1055,18 @@
   document.addEventListener("visibilitychange", () => { if (document.hidden) saver.flush(); });
   window.addEventListener("beforeunload", (e) => { if (saver.status.pending) { saver.flush(); e.preventDefault(); e.returnValue = ""; } });
 
+  if (/^https?:$/.test(location.protocol)) {
+    fetch("/api/version").then((r) => r.json()).then((v) => {
+      if (!v.nouvelle) return;
+      const a = $("maj");
+      a.href = v.page; a.hidden = false;
+      a.textContent = `⬆ Greffier ${v.derniere} est disponible (tu as ${v.version})`;
+    }).catch(() => { /* hors ligne ou ancienne version : rien à signaler */ });
+  }
+
   buildToc();
   render();
+  if (LIBRE && !isAnswered(store.get(QS[idx].id))) $("answer").focus();
   saver.init().then(afterLink).catch((e) => console.warn("[sauvegarde]", e));
 })();
 </script>

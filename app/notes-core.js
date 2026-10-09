@@ -15,10 +15,28 @@
   const today = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
   const EMPTY_ANSWER = () => ({ text: "", tags: [], who: "", due: "", status: "", photos: [] });
 
-  // Liste à plat des questions, dans l'ordre, avec leur section et leur partie.
-  function flatten(data) {
+  // Pages libres : notes sans question préparée (mode « libre », ou sujets imprévus pendant un atelier).
+  // Rangées dans state.pages ; leur contenu est dans state.answers[id], comme une réponse.
+  const isLibre = (data) => data.mode === "libre";
+  const pageLabel = (p) => (p.title || "").trim() || `Page ${String(p.id).slice(1)}`;
+  function pagesPart(data, state) {
+    const pages = (state && state.pages) || [];
+    const libre = isLibre(data);
+    if (!pages.length && !libre) return null;
+    const section = { code: "P", title: libre ? "Notes" : "Pages libres", minutes: 0, cible: "", etape: "", libre: true, questions: [] };
+    section.questions = pages.map((p) => ({ id: p.id, text: pageLabel(p), title: p.title || "", star: false, relances: [], libre: true }));
+    return { title: libre ? "Notes libres" : "Hors questions", sections: [section], libre: true };
+  }
+  // Parties affichées : celles de questions.md, puis les pages libres s'il y en a.
+  function allParts(data, state) {
+    const extra = pagesPart(data, state);
+    return extra ? [...data.parts, extra] : data.parts;
+  }
+
+  // Liste à plat des questions (et pages libres), dans l'ordre, avec leur section et leur partie.
+  function flatten(data, state) {
     const out = [];
-    data.parts.forEach((part, pi) =>
+    allParts(data, state).forEach((part, pi) =>
       part.sections.forEach((section) =>
         section.questions.forEach((q) => out.push({ ...q, section, part, partIndex: pi, index: out.length }))
       )
@@ -27,7 +45,7 @@
   }
 
   function emptyState() {
-    return { meta: { date: today(), participants: "" }, answers: {}, updatedAt: null };
+    return { meta: { date: today(), participants: "" }, answers: {}, pages: [], updatedAt: null };
   }
 
   // ---------------------------------------------------------------- État (localStorage)
@@ -74,6 +92,22 @@
         this.set(id, { tags: a.tags.includes(tag) ? a.tags.filter((t) => t !== tag) : [...a.tags, tag] });
       },
       setMeta(patch) { Object.assign(state.meta, patch); persist(); },
+      // Pages libres : identifiants P1, P2… jamais réutilisés (même après suppression).
+      addPage(title) {
+        const used = state.pages.map((p) => parseInt(String(p.id).slice(1), 10) || 0);
+        const n = Math.max(state.meta.nextPage || 1, ...used.map((u) => u + 1));
+        const page = { id: "P" + n, title: title || "", createdAt: new Date().toISOString() };
+        state.pages = [...state.pages, page];
+        state.meta.nextPage = n + 1;
+        persist();
+        return page;
+      },
+      renamePage(id, title) { state.pages = state.pages.map((p) => (p.id === id ? { ...p, title } : p)); persist(); },
+      removePage(id) {
+        state.pages = state.pages.filter((p) => p.id !== id);
+        delete state.answers[id];
+        persist();
+      },
       reset() { state = emptyState(); persist(); },
       load(obj) { state = Object.assign(emptyState(), obj); persist(); },
       onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
@@ -207,7 +241,9 @@
 
   function exportMarkdown(data, state, opts = {}) {
     const photoDir = opts.photoDir || "photos";
-    const qs = flatten(data);
+    const libre = isLibre(data);
+    const qs = flatten(data, state);
+    const questions = qs.filter((q) => !q.libre);
     const A = (q) => Object.assign(EMPTY_ANSWER(), state.answers[q.id]);
     const withTag = (t) => qs.filter((q) => A(q).tags.includes(t));
     const m = data.meta || {};
@@ -217,9 +253,13 @@
     L.push(`**Client** : ${m.client || ""}  **Mission** : ${m.mission || ""}`);
     L.push(`**Date** : ${state.meta.date || ""}  **Participants** : ${state.meta.participants || ""}`);
     L.push(`**Animation** : ${m.animateurs || ""}`);
-    const done = qs.filter((q) => isAnswered(A(q))).length;
     const nPhotos = qs.reduce((s, q) => s + A(q).photos.length, 0);
-    L.push(`**Avancement** : ${done} / ${qs.length} questions renseignées · ${nPhotos} photo(s)`, "");
+    const nPages = qs.length - questions.length;
+    if (libre) L.push(`**Notes libres** : ${nPages} page(s) · ${nPhotos} photo(s)`, "");
+    else {
+      const done = questions.filter((q) => isAnswered(A(q))).length;
+      L.push(`**Avancement** : ${done} / ${questions.length} questions renseignées${nPages ? ` · ${nPages} page(s) libre(s)` : ""} · ${nPhotos} photo(s)`, "");
+    }
 
     const table = (title, tag, header, row) => {
       const list = withTag(tag);
@@ -229,38 +269,41 @@
       list.forEach((q, i) => L.push(row(q, A(q), i + 1)));
       L.push("");
     };
-    table("Décisions", "decision", "| # | Décision | Question |",
+    const QCOL = libre ? "Page" : "Question";
+    table("Décisions", "decision", `| # | Décision | ${QCOL} |`,
       (q, a, i) => `| ${i} | ${cell(a.text)} | ${q.id} · ${cell(q.text)} |`);
-    table("Actions", "action", "| # | Action | Responsable | Échéance | Question |",
+    table("Actions", "action", `| # | Action | Responsable | Échéance | ${QCOL} |`,
       (q, a, i) => `| ${i} | ${cell(a.text)} | ${cell(a.who)} | ${cell(a.due)} | ${q.id} |`);
-    table("Risques et points de vigilance", "risque", "| # | Risque | Question |",
+    table("Risques et points de vigilance", "risque", `| # | Risque | ${QCOL} |`,
       (q, a, i) => `| ${i} | ${cell(a.text)} | ${q.id} · ${cell(q.text)} |`);
     table("Points ouverts (à creuser)", "creuser", "| # | Sujet | Note |",
       (q, a, i) => `| ${i} | ${q.id} · ${cell(q.text)} | ${cell(a.text)} |`);
     table("Parking (hors périmètre)", "hors", "| # | Sujet | Note |",
       (q, a, i) => `| ${i} | ${q.id} · ${cell(q.text)} | ${cell(a.text)} |`);
 
-    L.push("## Réponses détaillées", "");
-    data.parts.forEach((part) => {
-      L.push(`### ${part.title}`, "");
+    L.push(libre ? "## Notes par sujet" : "## Réponses détaillées", "");
+    allParts(data, state).forEach((part) => {
+      if (!libre) L.push(`### ${part.title}`, "");
       part.sections.forEach((s) => {
-        L.push(`#### ${s.code}. ${s.title}`, "");
+        if (!libre) L.push(s.libre ? "_Notes prises hors des questions préparées, une page par sujet._" : `#### ${s.code}. ${s.title}`, "");
         s.questions.forEach((q) => {
           const a = A(q);
+          if (q.libre && !isAnswered(a) && !q.title && !a.tags.length) return; // page vide
           const tags = a.tags.map((t) => (TAGS.find((x) => x.id === t) || {}).label).filter(Boolean);
           const flags = [q.star ? "★" : "", a.status === "skip" ? "(sautée)" : "", a.status === "review" ? "(à revoir)" : ""]
             .filter(Boolean).join(" ");
-          L.push(`**[${q.id}] ${q.text}** ${flags}`.trim());
+          L.push(libre ? `### [${q.id}] ${q.text} ${flags}`.trim() : `**[${q.id}] ${q.text}** ${flags}`.trim());
           if (tags.length) L.push(`_Tags : ${tags.join(", ")}${a.who ? ` · Qui : ${a.who}` : ""}${a.due ? ` · Échéance : ${a.due}` : ""}_`);
           L.push("");
-          L.push(a.text && a.text.trim() ? a.text.trim() : "_Non renseignée._");
+          L.push(a.text && a.text.trim() ? a.text.trim() : q.libre ? "_Page vide._" : "_Non renseignée._");
           L.push("");
           a.photos.forEach((p) => { L.push(`![${p.caption || "Photo " + q.id}](${photoDir}/${p.file})`, ""); });
         });
       });
     });
 
-    const missing = qs.filter((q) => !isAnswered(A(q)));
+    if (libre) return L.join("\n");
+    const missing = questions.filter((q) => !isAnswered(A(q)));
     L.push("## Questions non traitées", "");
     if (!missing.length) L.push("_Toutes les questions ont été renseignées._");
     missing.forEach((q) => L.push(`- [${q.id}] ${q.star ? "★ " : ""}${q.text}`));
@@ -488,7 +531,7 @@
   const stamp = () => { const d = new Date(); return `${today()}_${pad(d.getHours())}h${pad(d.getMinutes())}`; };
 
   globalThis.NotesCore = {
-    TAGS, flatten, createStore, createPhotoStore, createDiskSaver, resizeImage, blobToDataURL, dataURLToBlob,
+    TAGS, flatten, allParts, isLibre, createStore, createPhotoStore, createDiskSaver, resizeImage, blobToDataURL, dataURLToBlob,
     makeZip, exportMarkdown, download, pickFile, isAnswered, stamp, EMPTY_ANSWER,
   };
 })();

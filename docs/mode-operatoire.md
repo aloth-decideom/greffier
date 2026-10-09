@@ -15,7 +15,7 @@ Chaque réponse peut porter des **tags**, qui alimentent automatiquement la synt
 | **À creuser** | Réponse incomplète, à reprendre | « Points ouverts » |
 | **Hors périmètre** | Intéressant, mais pas pour cette mission | « Parking » |
 
-Les questions marquées ★ sont prioritaires : si le temps manque, on traite celles-là.
+Les questions marquées `*` dans `questions.md` (affichées ★) sont prioritaires : si le temps manque, on traite celles-là.
 
 ## Photos (schéma au tableau, document montré en séance…)
 Trois façons de les ajouter à la question affichée :
@@ -29,7 +29,7 @@ Les photos sont réduites automatiquement (environ 300 Ko), enregistrées dans `
 
 ## Avant l'atelier (J-3)
 1. Envoyer `ordre-du-jour.md`, avec la liste des documents à préparer.
-2. Ajuster `questions.md` (ajouter ou retirer des questions et des ★) ; recharger la page de l'atelier pour voir le résultat.
+2. Ajuster `questions.md` (ajouter ou retirer des questions et des `*`) ; recharger la page de l'atelier pour voir le résultat.
 3. **Répétition** : lancer Greffier, ouvrir l'atelier, vérifier le témoin « 💾 », appuyer sur **P**, glisser la 2e fenêtre sur l'écran externe, **F** pour le plein écran. Saisir une réponse, coller une image, vérifier qu'elles apparaissent dans `sorties/`, puis « Nouvelle session » (la répétition est gardée dans `sorties/historique/`).
 4. Vérifier que le navigateur autorise les pop-ups pour cette page (sinon l'écran projeté ne s'ouvre pas).
 
@@ -39,6 +39,7 @@ Les photos sont réduites automatiquement (environ 300 Ko), enregistrées dans `
 - Taguer **immédiatement** les décisions, actions et risques.
 - Une question qui déborde : tag « À creuser », et on avance. Le chrono passe au rouge en cas de retard sur le minutage.
 - Un sujet sensible : **C** masque les réponses sur l'écran projeté uniquement.
+- Un **sujet imprévu**, hors des questions : touche **N** (ou « ＋ Page »). On ouvre une **page libre**, avec un titre facultatif. Elle apparaît dans « Hors questions » du sommaire et dans les notes, et l'IA la rattache au bon thème du CR.
 - **Garder la fenêtre de Greffier ouverte** : c'est elle qui écrit sur le disque. Si le témoin passe au rouge, cliquer dessus pour voir le message.
 - **5 dernières minutes** : touche **S**. La synthèse (décisions, actions, risques) s'affiche aussi à l'écran projeté, et on la fait valider en séance.
 
@@ -57,6 +58,14 @@ L'IA produit aussi, dans le CR :
 - les **points ouverts** à reprendre dans l'atelier suivant ;
 - les premiers **cas d'usage**, pour la matrice de priorisation.
 
+## Notes libres (sans questions préparées)
+Pour une réunion, un entretien imprévu ou un point d'avancement : sur la page d'accueil de Greffier, **✏️ Notes libres**, un titre, puis **Démarrer**.
+- Greffier crée un dossier daté dans `Documents/Greffier/` (modifiable avec « Changer… »). Ce dossier contient un `questions.md` réduit à son en-tête, `mode: libre`.
+- **Une page par sujet** : on change de page avec **N**, ou **Ctrl+Entrée** depuis la dernière page. Le titre est facultatif. Découper ainsi aide l'IA à structurer le CR.
+- **Trop de pages ?** Dans une page vide, **Retour arrière** la supprime et ramène à la précédente. Sinon : 🗑 en haut, la croix au survol dans le sommaire, ou **Suppr**. Une confirmation est demandée si la page contient des notes, et une copie va dans l'historique. Les pages vides n'apparaissent ni dans les notes exportées ni dans le prompt du CR.
+- Tags, photos, sauvegarde continue, écran projeté et synthèse fonctionnent comme pour un atelier.
+- **Le CR** suit le même chemin (« 📝 Compte rendu ») avec un modèle de compte rendu de réunion : synthèse, sujets abordés, décisions, actions, risques, prochaines étapes. Compléter `mission`, `animateurs` et `contexte` dans `questions.md` améliore le résultat.
+
 ## Raccourcis clavier (hors du champ de saisie)
 | Touche | Effet |
 |---|---|
@@ -69,3 +78,5 @@ L'IA produit aussi, dans le CR :
 | C | Masquer les réponses sur l'écran projeté |
 | R · M · F · T | Relances · sommaire · plein écran · chrono |
 | X · V | Question sautée · à revoir |
+| N (Ctrl+Maj+Entrée pendant la saisie) | Nouvelle page libre |
+| Suppr (Retour arrière dans une page vide) | Supprimer la page libre |

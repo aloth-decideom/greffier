@@ -5,6 +5,8 @@ package main
 //   /api/ateliers           ateliers récents et trouvés à côté de l'application
 //   /api/parcourir          sélecteur de dossier natif du système
 //   /api/ouvrir             prépare un atelier et renvoie l'adresse de sa page
+//   /api/notes-libres       crée un dossier de notes libres (sans questions) et l'ouvre
+//   /api/version            version courante et éventuelle nouvelle version sur GitHub
 //   /a/<slug>/…             page d'atelier (fichiers intégrés + questions.js lu en direct)
 //   /a/<slug>/api/…         sauvegarde sur disque dans <atelier>/sorties/
 
@@ -37,10 +39,12 @@ type Serveur struct {
 	amu       sync.Mutex
 	Arret     chan struct{} // fermé quand la page demande l'arrêt de l'application
 	arretOnce sync.Once
+	Maj       verificateurMaj
 }
 
 func NewServeur(port int) *Serveur {
-	return &Serveur{origin: fmt.Sprintf("http://127.0.0.1:%d", port), ateliers: map[string]string{}, Arret: make(chan struct{})}
+	return &Serveur{origin: fmt.Sprintf("http://127.0.0.1:%d", port), ateliers: map[string]string{}, Arret: make(chan struct{}),
+		Maj: verificateurMaj{info: InfoVersion{Version: version}}}
 }
 
 func (s *Serveur) Handler() http.Handler {
@@ -50,6 +54,8 @@ func (s *Serveur) Handler() http.Handler {
 	mux.HandleFunc("/api/parcourir", s.parcourir)
 	mux.HandleFunc("/api/ouvrir", s.ouvrir)
 	mux.HandleFunc("/api/arreter", s.arreter)
+	mux.HandleFunc("/api/notes-libres", s.notesLibres)
+	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, s.Maj.Info()) })
 	mux.HandleFunc("/a/", s.atelier)
 	mux.HandleFunc("/static/", s.statique) // charte, polices, logo pour la page de choix
 	return mux
@@ -131,6 +137,7 @@ type infoAtelier struct {
 	Questions int    `json:"questions"`
 	Erreur    string `json:"erreur,omitempty"`
 	Recent    bool   `json:"recent"`
+	Mode      string `json:"mode,omitempty"`
 }
 
 func decrire(dir string, recent bool) infoAtelier {
@@ -140,7 +147,7 @@ func decrire(dir string, recent bool) infoAtelier {
 		info.Erreur = err.Error()
 		return info
 	}
-	info.Titre, info.Client = a.Meta["atelier"], a.Meta["client"]
+	info.Titre, info.Client, info.Mode = a.Meta["atelier"], a.Meta["client"], a.Mode
 	_, info.Questions = a.QuestionCount()
 	return info
 }
@@ -174,7 +181,7 @@ func (s *Serveur) listeAteliers(w http.ResponseWriter, r *http.Request) {
 	if liste == nil {
 		liste = []infoAtelier{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ateliers": liste, "systeme": nomSysteme()})
+	writeJSON(w, http.StatusOK, map[string]any{"ateliers": liste, "systeme": nomSysteme(), "dossierNotes": dossierNotesParDefaut()})
 }
 
 func (s *Serveur) parcourir(w http.ResponseWriter, r *http.Request) {
@@ -182,7 +189,13 @@ func (s *Serveur) parcourir(w http.ResponseWriter, r *http.Request) {
 		erreur(w, http.StatusForbidden, "refusé")
 		return
 	}
-	dir, err := choisirDossier()
+	var req struct{ Notes bool } // notes libres : choix du dossier où les créer
+	_ = json.NewDecoder(io.LimitReader(r.Body, 1<<12)).Decode(&req)
+	invite := "Choisir le dossier de l'atelier (celui qui contient questions.md)"
+	if req.Notes {
+		invite = "Choisir où créer les notes libres"
+	}
+	dir, err := choisirDossier(invite, req.Notes)
 	if err != nil {
 		erreur(w, http.StatusOK, err.Error())
 		return
@@ -208,6 +221,34 @@ func (s *Serveur) ouvrir(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"url": url, "notes": notes})
+}
+
+// notesLibres : crée <base>/<date>-<titre>/ (base par défaut : Documents/Greffier) puis l'ouvre.
+func (s *Serveur) notesLibres(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || !s.memeOrigine(r) {
+		erreur(w, http.StatusForbidden, "refusé")
+		return
+	}
+	var req struct{ Titre, Client, Base string }
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req); err != nil {
+		erreur(w, http.StatusBadRequest, "données illisibles")
+		return
+	}
+	base := strings.Trim(strings.TrimSpace(req.Base), `"`)
+	if base == "" {
+		base = dossierNotesParDefaut()
+	}
+	dir, err := CreerNotesLibres(base, req.Titre, req.Client, time.Now())
+	if err != nil {
+		erreur(w, http.StatusOK, "création impossible : "+err.Error())
+		return
+	}
+	url, notes, err := s.preparer(dir)
+	if err != nil {
+		erreur(w, http.StatusOK, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"url": url, "notes": notes, "chemin": dir})
 }
 
 // arreter : bouton « Arrêter l'application » des pages. L'arrêt effectif (qui laisse finir
@@ -243,7 +284,11 @@ func (s *Serveur) preparer(dir string) (string, []string, error) {
 	s.amu.Unlock()
 	ajouterRecent(abs)
 	_, nq := a.QuestionCount()
-	logf("Atelier ouvert : %s (%d questions) — sauvegarde dans %s", abs, nq, filepath.Join(abs, "sorties"))
+	quoi := fmt.Sprintf("%d questions", nq)
+	if a.Mode == "libre" {
+		quoi = "notes libres"
+	}
+	logf("Atelier ouvert : %s (%s) — sauvegarde dans %s", abs, quoi, filepath.Join(abs, "sorties"))
 	return "/a/" + a.Slug + "/atelier.html", append(warnings, notes...), nil
 }
 

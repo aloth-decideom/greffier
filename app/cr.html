@@ -90,7 +90,7 @@
   const urls = new Map();         // cache des photos de la session
   const CR_KEY = KEY + "-cr";
 
-  $("client").textContent = `× ${DATA.meta.client || ""}`;
+  $("client").textContent = DATA.meta.client ? `× ${DATA.meta.client}` : "";
   try { $("md").value = localStorage.getItem(CR_KEY) || ""; } catch (e) { /* stockage indisponible */ }
 
   // ---------- Prompt + notes pour l'IA ----------

@@ -26,10 +26,16 @@ Dans les [**Releases**](../../releases), prendre le fichier correspondant à son
 1. **Préparer l'atelier** : un dossier avec un fichier `questions.md` (partir de [`exemple/atelier-exemple`](exemple/atelier-exemple/questions.md)).
 2. **Double-clic sur Greffier** : une fenêtre de console (à garder ouverte) et une page dans le navigateur s'ouvrent.
 3. **Choisir l'atelier** : dans la liste, avec **📂 Parcourir…** (sélecteur de dossier du système), en collant le chemin, ou en glissant le dossier sur Greffier.
-4. **Animer** : question à l'écran, saisie de la réponse, tags (Décision, Action, Risque, À creuser, Hors périmètre), photos (bouton, glisser-déposer, Ctrl+V), **écran projeté** (touche P), synthèse (touche S).
+4. **Animer** : question à l'écran, saisie de la réponse, tags (Décision, Action, Risque, À creuser, Hors périmètre), photos (bouton, glisser-déposer, Ctrl+V), **écran projeté** (touche P), synthèse (touche S). Un sujet imprévu : **page libre** (touche N).
 5. **Arrêter** : bouton **⏻ Arrêter l'application** (ou fermer la fenêtre de console).
 
 Mode opératoire complet : [`docs/mode-operatoire.md`](docs/mode-operatoire.md).
+
+### Notes libres (sans `questions.md`)
+Sur la page d'accueil : **✏️ Notes libres**, un titre, **Démarrer**. Greffier crée un dossier daté dans `Documents/Greffier/`, et on prend des notes **page par page**, une par sujet (**N** pour une nouvelle page). La sauvegarde, les photos, les tags et le CR par IA fonctionnent comme pour un atelier, avec un modèle de compte rendu de réunion ([`modele-compte-rendu-libre.md`](modele-compte-rendu-libre.md)).
+
+### Mettre à jour
+Au démarrage, Greffier regarde s'il existe une version plus récente sur GitHub. Si c'est le cas, la page d'accueil affiche **Télécharger**. Il suffit de remplacer l'ancien fichier par le nouveau : les notes sont dans les dossiers d'atelier, rien n'est perdu. Hors ligne, rien ne s'affiche. Pour désactiver la vérification : `--sans-maj` (ou la variable `GREFFIER_SANS_MAJ=1`).
 
 ### Le fichier `questions.md`
 ```md
@@ -44,13 +50,13 @@ contexte: Quelques phrases de contexte, reprises dans le prompt du compte rendu.
 # Partie A — Cadrage avec la direction (1 h)
 
 ## A1. Vision et ambitions | 15 min | cible: Direction
-- Q: ★ Quelle place la donnée occupe-t-elle dans votre stratégie ?
+- Q: * Quelle place la donnée occupe-t-elle dans votre stratégie ?
   - relance: Projet IT, projet métier ou projet d'entreprise ?
 - Q: Quelles décisions prenez-vous avec des chiffres contestés ?
 ```
 - `# …` : une partie ; `## A1. Titre` : une section (le code `A1` est obligatoire, il numérote les questions `A1-1`, `A1-2`…).
 - Après le titre, séparés par `|` et facultatifs : durée (`15 min`, utilisée par le chronomètre), `cible:`, `étape:`.
-- `- Q:` une question (`★` = prioritaire) ; `- relance:` une relance, affichée à l'animateur seulement.
+- `- Q:` une question (`*` en tête = prioritaire, affichée avec ★) ; `- relance:` une relance, affichée à l'animateur seulement.
 - Modifier le fichier puis **recharger la page** : Greffier le relit.
 
 ### Ce que Greffier écrit dans le dossier de l'atelier
@@ -60,8 +66,9 @@ mon-atelier/
   sorties/        session.json, notes.md, photos/, historique/ (copie toutes les 10 min)
   outil/          page autonome (secours : double-clic dans Chrome / Edge), outil/cr.html
   prompt-cr.md    prompt du compte rendu (contexte + modèle)
-  marp/           slides.md (+ slides.html si marp-cli est installé), notes-atelier.md
+  marp/           slides.md (+ slides.html si marp-cli est installé), notes-atelier.md (pas pour les notes libres)
 ```
+`outil/`, `prompt-cr.md` et `marp/` sont régénérés à chaque ouverture : dans un dépôt Git, les ignorer (`.gitignore`) et ne versionner que `questions.md` et `sorties/`.
 
 ## Ce qui protège les notes
 | Protection | Détail |
@@ -73,7 +80,7 @@ mon-atelier/
 | Photos supprimées | Déplacées dans `sorties/photos/supprimees/`, jamais effacées |
 
 ## Le compte rendu par IA
-Un prompt commun ([`prompt-compte-rendu.md`](prompt-compte-rendu.md)) et un modèle ([`modele-compte-rendu.md`](modele-compte-rendu.md)) imposent la structure du CR, interdisent d'inventer et font marquer **[À CONFIRMER]** ce qui est ambigu.
+Un prompt commun ([`prompt-compte-rendu.md`](prompt-compte-rendu.md)) et un modèle ([`modele-compte-rendu.md`](modele-compte-rendu.md), ou [`modele-compte-rendu-libre.md`](modele-compte-rendu-libre.md) pour des notes libres) imposent la structure du CR, interdisent d'inventer et font marquer **[À CONFIRMER]** ce qui est ambigu.
 
 1. Page d'atelier → **📝 Compte rendu (IA → PDF)** → **🤖 Copier pour l'IA** → coller dans Gemini, ChatGPT ou Claude.
 2. Coller la réponse dans la page : aperçu A4 avec les photos, [À CONFIRMER] surlignés et comptés.
@@ -96,6 +103,7 @@ go run . --generer exemple/atelier-exemple   # générer les fichiers d'un ateli
 | Fichier | Rôle |
 |---|---|
 | `main.go`, `atelier.go`, `serveur.go`, `systeme*.go` | application (serveur local, lecture de `questions.md`, intégration système) |
+| `maj.go` | avis de nouvelle version (API GitHub, dernière release) |
 | `app/` | page d'atelier, page CR, moteur de notes (`notes-core.js`), charte (`theme.css`), mise en page A4 (`document.css`) |
 | `docs/charte-decideom.md` | charte graphique DecideOm appliquée |
 | `winres/`, `rsrc_windows_*.syso` | icône et propriétés de l'exe Windows (régénérer : `go run github.com/tc-hib/go-winres@v0.3.3 simply --icon winres/icon.png --manifest cli --arch amd64,arm64`) |
