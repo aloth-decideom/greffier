@@ -1,0 +1,63 @@
+/* Charte graphique DecideOm (source : TemplateDecideOm2026, slides « Charte graphique »).
+   Polices embarquées, aucun appel réseau. Détail : docs/charte-decideom.md */
+@font-face { font-family: "Poppins"; font-weight: 400; font-display: swap; src: url("fonts/poppins-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Poppins"; font-weight: 500; font-display: swap; src: url("fonts/poppins-latin-500-normal.woff2") format("woff2"); }
+@font-face { font-family: "Poppins"; font-weight: 600; font-display: swap; src: url("fonts/poppins-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Poppins"; font-weight: 700; font-display: swap; src: url("fonts/poppins-latin-700-normal.woff2") format("woff2"); }
+@font-face { font-family: "Open Sans"; font-weight: 400; font-display: swap; src: url("fonts/open-sans-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Open Sans"; font-weight: 400; font-style: italic; font-display: swap; src: url("fonts/open-sans-latin-400-italic.woff2") format("woff2"); }
+@font-face { font-family: "Open Sans"; font-weight: 600; font-display: swap; src: url("fonts/open-sans-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Open Sans"; font-weight: 700; font-display: swap; src: url("fonts/open-sans-latin-700-normal.woff2") format("woff2"); }
+
+:root {
+  /* Couleurs du logo */
+  --rouge: #ea232f;          /* rouge principal */
+  --rouge-fonce: #ad151e;    /* rouge foncé */
+  --gris-logo: #bcbdbf;
+  --rouge-icone: #c83c3c;    /* pictogrammes : rgb(200, 60, 60) */
+  --rouge-clair: #fdecee;    /* fonds teintés, survols */
+  --filet: #e8a3a8;          /* filet rose des slides */
+
+  /* Textes */
+  --encre: #474747;          /* titres : Poppins, gris foncé */
+  --texte: #7f7f7f;          /* contenus : Open Sans, gris */
+  --texte-fort: #595959;     /* contenus longs à l'écran ou projetés (lisibilité) */
+  --gris: #9a9a9a;
+  --ligne: #e7e7ea;
+  --fond: #ffffff;
+  --fond-2: #f7f7f8;
+  --ombre: 0 3px 14px rgba(0, 0, 0, .12);   /* cartouches blancs des slides */
+
+  /* Palette « schème offre » */
+  --offre-1: #4c5e8b; --offre-2: #7c5f7f; --offre-3: #9b6075;
+  --offre-4: #ac5e62; --offre-5: #ca5a56; --offre-6: #e95041;
+  --gouvernance: #98b3d7;
+
+  --ok: #3e7d5a;
+  --warn: #b26a00;
+
+  --font: "Open Sans", "Segoe UI", system-ui, -apple-system, sans-serif;   /* contenus */
+  --font-titre: "Poppins", "Segoe UI", system-ui, sans-serif;              /* titres */
+  --mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  /* Tags de prise de notes, pris dans la palette offre */
+  --tag-decision: var(--offre-1);
+  --tag-action: var(--offre-3);
+  --tag-risque: var(--rouge-fonce);
+  --tag-creuser: #c97a12;
+  --tag-hors: #8a8a8a;
+}
+
+/* Motif DecideOm : 9 pastilles rouges (3 × 3) placées devant les titres */
+.dots9 {
+  display: inline-block;
+  flex: none;
+  width: var(--dots-size, 30px);
+  height: var(--dots-size, 30px);
+  background: radial-gradient(circle, var(--rouge) 0 34%, transparent 38%) 0 0 / 33.333% 33.333%;
+}
+/* Titre à deux niveaux : 1re ligne fine, 2e ligne en gras (« Charte graphique / Police ») */
+.titre-dm { font-family: var(--font-titre); color: var(--encre); font-weight: 400; line-height: 1.2; }
+.titre-dm b, .titre-dm strong { font-weight: 600; display: block; }
+/* Cartouche blanc ombré */
+.cartouche { background: var(--fond); box-shadow: var(--ombre); }

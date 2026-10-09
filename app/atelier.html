@@ -1,0 +1,923 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atelier · prise de notes</title>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="document.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font-family: var(--font); color: var(--texte); background: var(--fond); display: grid; grid-template-columns: 300px 1fr; overflow: hidden; }
+  body.no-side, body.projection { grid-template-columns: 0 1fr; }
+  button, input, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  [hidden] { display: none !important; }
+
+  /* ---------- Barre latérale ---------- */
+  aside { background: var(--fond-2); border-right: 1px solid var(--ligne); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+  body.no-side aside, body.projection aside { visibility: hidden; }
+  .brand { padding: 18px 18px 12px; border-bottom: 1px solid var(--ligne); }
+  .brand .logo { display: flex; align-items: center; gap: 10px; }
+  .brand .logo img { height: 34px; }
+  .brand .client { color: var(--rouge); font-family: var(--font-titre); font-weight: 600; font-size: 13px; letter-spacing: .06em; text-transform: uppercase; }
+  .brand h1 { font-family: var(--font-titre); font-size: 15px; font-weight: 500; color: var(--encre); margin: 8px 0 10px; line-height: 1.3; }
+  .progress { height: 6px; background: var(--ligne); border-radius: 3px; overflow: hidden; }
+  .progress i { display: block; height: 100%; background: var(--rouge); width: 0; transition: width .3s; }
+  .progress-label { font-size: 12px; color: var(--gris); margin-top: 6px; }
+  nav.toc { flex: 1; overflow-y: auto; padding: 8px 0 16px; }
+  .toc .part { font-family: var(--font-titre); font-size: 11px; font-weight: 700; color: var(--gris); text-transform: uppercase; letter-spacing: .06em; padding: 14px 18px 4px; }
+  .toc .sec { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 6px 18px; font-size: 13px; color: var(--texte); }
+  .toc .sec:hover { background: #eeeef2; }
+  .toc .sec.current { color: var(--rouge); font-weight: 600; }
+  .toc .dots { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 18px 6px; }
+  .toc .dot { width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid #c5c5cc; background: var(--fond); padding: 0; position: relative; }
+  .toc .dot.star { border-color: var(--rouge-fonce); }
+  .toc .dot.done { background: var(--rouge); border-color: var(--rouge); }
+  .toc .dot.skip { background: repeating-linear-gradient(45deg, #ddd 0 3px, #fff 3px 6px); }
+  .toc .dot.review { background: var(--tag-creuser); border-color: var(--tag-creuser); }
+  .toc .dot.photo::after { content: ""; position: absolute; right: -3px; top: -3px; width: 6px; height: 6px; border-radius: 50%; background: var(--tag-action); }
+  .toc .dot.current { outline: 2px solid var(--encre); outline-offset: 1px; }
+  .side-meta { padding: 10px 18px; border-top: 1px solid var(--ligne); display: grid; gap: 6px; }
+  .side-meta label { font-size: 11px; color: var(--gris); display: grid; gap: 2px; }
+  .side-meta input { border: 1px solid var(--ligne); border-radius: 6px; padding: 5px 8px; font-size: 13px; background: var(--fond); }
+  .side-actions { padding: 10px 18px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .side-actions button { border: 1px solid var(--ligne); background: var(--fond); border-radius: 8px; padding: 7px 8px; font-size: 12px; }
+  .side-actions button:hover { border-color: var(--rouge); color: var(--rouge); }
+  .side-actions .primary { grid-column: 1 / -1; background: var(--rouge); color: #fff; border-color: var(--rouge); font-weight: 600; }
+  .side-actions .primary:hover { background: var(--rouge-fonce); color: #fff; }
+  .side-actions .wide { grid-column: 1 / -1; }
+  .warn { grid-column: 1 / -1; font-size: 11px; color: var(--warn); }
+
+  /* ---------- Zone principale ---------- */
+  main { display: flex; flex-direction: column; min-width: 0; height: 100vh; }
+  header.top { display: flex; align-items: center; gap: 14px; padding: 12px 28px; border-bottom: 1px solid var(--ligne); }
+  .icon-btn { border: 1px solid var(--ligne); background: var(--fond); border-radius: 8px; padding: 6px 10px; font-size: 14px; }
+  .icon-btn.on { background: var(--encre); color: #fff; border-color: var(--encre); }
+  .crumb { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; color: var(--gris); }
+  .crumb b { color: var(--encre); font-weight: 600; }
+  .chrono { font-family: var(--mono); font-size: 14px; padding: 5px 10px; border-radius: 8px; background: var(--fond-2); border: 1px solid var(--ligne); }
+  .chrono.late { color: #fff; background: var(--rouge); border-color: var(--rouge); }
+  .chrono button { border: 0; background: none; padding: 0 0 0 6px; color: inherit; }
+  .pos { font-family: var(--mono); font-size: 14px; color: var(--gris); }
+
+  .stage { flex: 1; overflow-y: auto; padding: 4vh 6vw 2vh; display: flex; flex-direction: column; gap: 2.2vh; position: relative; }
+  .stage.drop::after { content: "Déposer la photo ici"; position: absolute; inset: 12px; border: 3px dashed var(--rouge); border-radius: 16px; background: rgba(251,233,234,.85); display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: 600; color: var(--rouge); }
+  .sec-title { font-family: var(--font-titre); color: var(--rouge); font-weight: 500; font-size: clamp(14px, 1.4vw, 20px); display: flex; gap: 14px; align-items: center; --dots-size: clamp(22px, 2vw, 32px); }
+  .sec-title .meta { color: var(--gris); font-weight: 400; font-size: .8em; }
+  .question { font-family: var(--font-titre); font-size: clamp(24px, 2.9vw, 46px); font-weight: 500; color: var(--encre); line-height: 1.25; margin: 0; }
+  .question .star { color: var(--rouge); }
+  .relances { margin: 0; padding: 0; list-style: none; display: grid; gap: 4px; }
+  .relances li { font-size: clamp(14px, 1.3vw, 20px); color: var(--gris); padding-left: 22px; position: relative; }
+  .relances li::before { content: "↳"; position: absolute; left: 0; color: var(--rouge); }
+  body.hide-relances .relances { display: none; }
+
+  .answer-wrap { display: flex; flex-direction: column; gap: 10px; flex: 1; min-height: 220px; }
+  body.client .answer-wrap { visibility: hidden; }
+  textarea.answer { flex: 1; min-height: 160px; width: 100%; resize: none; border: 2px solid var(--ligne); border-radius: 12px; padding: 16px 18px; font-size: clamp(16px, 1.45vw, 24px); line-height: 1.45; color: var(--texte-fort); background: var(--fond-2); outline: none; }
+  textarea.answer:focus { border-color: var(--rouge); background: var(--fond); }
+  .answer-view { flex: 1; white-space: pre-wrap; font-size: clamp(18px, 1.8vw, 30px); line-height: 1.45; padding: 4px 2px; color: var(--texte-fort); }
+  .tags { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .tag { border: 1.5px solid var(--ligne); background: var(--fond); border-radius: 999px; padding: 6px 14px; font-size: 14px; display: inline-flex; gap: 6px; align-items: center; }
+  .tag kbd { font-family: var(--mono); font-size: 10px; color: var(--gris); border: 1px solid var(--ligne); border-radius: 4px; padding: 0 4px; }
+  .tag.on { color: #fff; border-color: transparent; }
+  .tag.on kbd { color: #fff; border-color: rgba(255,255,255,.5); }
+  .tag[data-tag=decision].on { background: var(--tag-decision); }
+  .tag[data-tag=action].on { background: var(--tag-action); }
+  .tag[data-tag=risque].on { background: var(--tag-risque); }
+  .tag[data-tag=creuser].on { background: var(--tag-creuser); }
+  .tag[data-tag=hors].on { background: var(--tag-hors); }
+  .spacer { flex: 1; }
+  .status { border: 1px dashed var(--ligne); background: none; border-radius: 999px; padding: 6px 12px; font-size: 13px; color: var(--gris); }
+  .status.on { border-style: solid; color: var(--encre); border-color: var(--encre); }
+  .action-fields { display: none; gap: 10px; }
+  .action-fields.show { display: flex; }
+  .action-fields input { border: 1.5px solid var(--tag-action); border-radius: 8px; padding: 7px 10px; font-size: 15px; flex: 1; }
+
+  /* Photos */
+  .photos { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+  .photo { width: 170px; display: grid; gap: 4px; position: relative; }
+  .photo img { width: 170px; height: 110px; object-fit: cover; border-radius: 8px; border: 1px solid var(--ligne); cursor: zoom-in; background: var(--fond-2); }
+  .photo input { border: 1px solid var(--ligne); border-radius: 6px; padding: 3px 6px; font-size: 12px; }
+  .photo .del { position: absolute; top: 4px; right: 4px; border: 0; border-radius: 50%; width: 24px; height: 24px; background: rgba(0,0,0,.6); color: #fff; font-size: 13px; line-height: 1; }
+  .add-photo { width: 170px; height: 110px; border: 2px dashed var(--ligne); border-radius: 8px; background: none; color: var(--gris); font-size: 13px; display: grid; place-items: center; text-align: center; padding: 6px; }
+  .add-photo:hover { border-color: var(--rouge); color: var(--rouge); }
+  body.projection .photo img { width: auto; height: 26vh; max-width: 40vw; cursor: default; }
+  body.projection .photo { width: auto; }
+  body.projection .photo .del, body.projection .photo input, body.projection .add-photo { display: none; }
+  .photo .cap { font-size: 14px; color: var(--gris); }
+
+  footer.nav { display: flex; align-items: center; gap: 12px; padding: 12px 28px; border-top: 1px solid var(--ligne); }
+  footer.nav button { border: 1px solid var(--ligne); background: var(--fond); border-radius: 10px; padding: 9px 18px; font-size: 15px; }
+  footer.nav .next { font-family: var(--font-titre); background: var(--rouge); color: #fff; border-color: var(--rouge); font-weight: 600; }
+  .hint { flex: 1; text-align: center; font-size: 12px; color: var(--gris); }
+  .saved { font-size: 12px; color: var(--ok); opacity: 0; transition: opacity .3s; }
+  .saved.show { opacity: 1; }
+  .disk { border: 1px solid var(--ligne); background: var(--fond); border-radius: 999px; padding: 4px 11px; font-size: 12.5px; white-space: nowrap; }
+  .disk.ok { color: var(--ok); border-color: #b9d8c6; background: #f1f8f4; }
+  .disk.wait { color: var(--gris); }
+  .disk.warn { color: var(--warn); border-color: #f0cf9c; background: #fff7ea; }
+  .disk.err { color: #fff; background: var(--rouge-fonce); border-color: var(--rouge-fonce); }
+  .disk-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 9px 28px; background: #fff7ea; border-bottom: 1px solid #f0cf9c; color: #6b4e00; font-size: 13.5px; }
+  .disk-banner.err { background: var(--rouge-clair); border-color: var(--filet); color: var(--rouge-fonce); }
+  .disk-banner b { font-weight: 600; }
+  .disk-banner code { background: rgba(0,0,0,.06); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; }
+  .disk-banner button { border: 1px solid currentColor; background: var(--fond); color: inherit; border-radius: 8px; padding: 5px 12px; font-size: 13px; }
+  .disk-banner button.main { background: var(--rouge); border-color: var(--rouge); color: #fff; font-weight: 600; }
+  .disk-banner .later { border: 0; background: none; text-decoration: underline; padding: 5px 4px; }
+  body.projection .disk-banner { display: none !important; }
+  .proj-badge { font-size: 12px; color: #fff; background: var(--tag-action); border-radius: 999px; padding: 3px 10px; }
+
+  /* ---------- Mode écran projeté (2e fenêtre) ---------- */
+  body.projection header.top, body.projection footer.nav, body.projection .tags, body.projection .action-fields,
+  body.projection textarea.answer, body.projection .relances { display: none !important; }
+  body.projection .stage { padding: 6vh 7vw; }
+  body.projection .question { font-size: clamp(28px, 3.6vw, 64px); }
+  body.projection.client .answer-wrap { visibility: hidden; }
+  .proj-brand { display: none; }
+  body.projection .proj-brand { display: grid; grid-template-columns: 1fr auto 1fr; align-items: end; color: var(--encre); font-size: 14px; position: fixed; left: 2vw; right: 2vw; bottom: 1.8vh; }
+  body.projection .proj-brand .num { font-family: var(--font-titre); font-size: clamp(12px, 1vw, 16px); }
+  body.projection .proj-brand img { height: clamp(22px, 3.2vh, 34px); }
+  body.projection .proj-brand .ctx { justify-self: end; color: var(--gris); font-size: clamp(11px, .9vw, 14px); }
+  body.projection .proj-brand b { color: var(--rouge); font-weight: 600; }
+  body.projection { border-bottom: 3px solid var(--rouge); }
+  .proj-wait { position: fixed; inset: 0; display: none; place-items: center; font-size: 22px; color: var(--gris); background: var(--fond); z-index: 20; text-align: center; padding: 20px; }
+
+  /* ---------- Overlays ---------- */
+  .overlay { position: fixed; inset: 0; background: rgba(20,20,25,.55); display: none; align-items: center; justify-content: center; z-index: 10; }
+  .overlay.show { display: flex; }
+  .panel { background: var(--fond); border-radius: 16px; width: min(1200px, 94vw); max-height: 90vh; overflow-y: auto; padding: 28px 36px; }
+  .panel h2 { margin: 0 0 4px; color: var(--encre); font-family: var(--font-titre); font-weight: 500; font-size: 28px; }
+  .panel .sub { color: var(--gris); margin-bottom: 18px; }
+  .panel h3 { font-family: var(--font-titre); font-weight: 500; color: var(--encre); font-size: 18px; margin: 20px 0 8px; display: flex; gap: 8px; align-items: center; }
+  .panel h3 .pill { width: 12px; height: 12px; border-radius: 50%; }
+  .panel table { width: 100%; border-collapse: collapse; font-size: 16px; }
+  .panel td, .panel th { border-bottom: 1px solid var(--ligne); padding: 8px 10px; text-align: left; vertical-align: top; }
+  .panel th { font-size: 12px; text-transform: uppercase; color: var(--gris); font-weight: 600; }
+  .panel td.q { color: var(--gris); font-size: 13px; width: 30%; }
+  .panel .empty { color: var(--gris); font-style: italic; }
+  .panel .close { float: right; }
+  .help kbd { font-family: var(--mono); border: 1px solid var(--ligne); border-radius: 4px; padding: 1px 6px; background: var(--fond-2); }
+  .help td:first-child { white-space: nowrap; width: 260px; }
+  #lightbox { cursor: zoom-out; }
+  #lightbox img { max-width: 94vw; max-height: 90vh; border-radius: 8px; background: #fff; }
+  .toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); background: var(--encre); color: #fff; padding: 10px 18px; border-radius: 10px; font-size: 14px; z-index: 30; opacity: 0; transition: opacity .3s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+
+  /* ---------- Rapport imprimable (PDF) : mise en page commune dans document.css ---------- */
+  #print { display: none; }
+  @media print {
+    html, body { height: auto; overflow: visible; display: block; background: #fff; }
+    body > *:not(#print) { display: none !important; }
+    #print { display: block; }
+    #print .qa { break-inside: avoid; margin-bottom: 3.5mm; }
+    #print .qa .qt { font-family: var(--font-titre); font-weight: 500; color: var(--encre); }
+    #print .qa .qt .id { color: var(--gris); font-weight: 400; font-size: 8pt; }
+    #print .qa .tg { font-size: 8.5pt; color: var(--tag-action); font-weight: 600; }
+    #print .qa .ans { white-space: pre-wrap; margin-top: 1mm; }
+    #print td.q { color: var(--gris); font-size: 8pt; width: 32%; }
+  }
+
+  @media (max-width: 800px) {
+    body { grid-template-columns: 0 1fr; }
+    aside { position: fixed; inset: 0 30% 0 0; z-index: 5; visibility: hidden; }
+    body.side-open aside { visibility: visible; }
+    .stage { padding: 16px; }
+    header.top, footer.nav { padding: 10px 16px; }
+    .hint { display: none; }
+  }
+</style>
+</head>
+<body>
+<aside>
+  <div class="brand">
+    <div class="logo"><img src="img/logo-decideom.png" alt="DecideOm"><span class="client" id="client"></span></div>
+    <h1 id="atelier"></h1>
+    <div class="progress"><i id="bar"></i></div>
+    <div class="progress-label" id="barLabel"></div>
+  </div>
+  <nav class="toc" id="toc"></nav>
+  <div class="side-meta">
+    <label>Date <input id="metaDate" type="date"></label>
+    <label>Participants <input id="metaPart" placeholder="Noms, fonctions…"></label>
+  </div>
+  <div class="side-actions">
+    <button class="primary" id="btnZip" title="notes.md + photos + sauvegarde, dans un .zip">⬇ Exporter l'atelier (.zip)</button>
+    <button class="wide" id="btnCr" title="Rédiger le compte rendu avec une IA (Gemini, Claude…) puis le mettre en page en PDF">📝 Compte rendu (IA → PDF)</button>
+    <button class="wide" id="btnPdf" title="Notes brutes imprimables, avec les photos : choisir « Enregistrer en PDF »">🖨 Notes brutes PDF</button>
+    <button id="btnProj" title="Ouvrir l'écran projeté dans une 2e fenêtre (P)">📽 Écran projeté</button>
+    <button id="btnSynth" title="Synthèse (S)">Synthèse</button>
+    <button id="btnMd" title="Notes seules, en Markdown">Exporter .md</button>
+    <button id="btnJson" title="Sauvegarde complète avec photos, réimportable">Sauvegarde .json</button>
+    <button id="btnImport" title="Recharger une sauvegarde .json">Importer .json</button>
+    <button id="btnHelp">Raccourcis</button>
+    <button class="wide" id="btnReset" title="Vider toutes les réponses et les photos">Nouvelle session</button>
+    <button class="wide" id="btnStop" hidden title="Enregistre ce qui est en attente puis arrête Greffier">⏻ Arrêter l'application</button>
+    <div class="warn" id="warn" hidden></div>
+  </div>
+</aside>
+
+<main>
+  <header class="top">
+    <button class="icon-btn" id="btnSide" title="Afficher / masquer le sommaire (M)">☰</button>
+    <div class="crumb" id="crumb"></div>
+    <button class="disk wait" id="diskBadge" title="Sauvegarde sur disque">💾 …</button>
+    <span class="proj-badge" id="projBadge" hidden>📽 projection</span>
+    <div class="chrono" id="chrono" title="Chronomètre de la partie en cours / temps prévu jusqu'à la fin de la section"></div>
+    <span class="pos" id="pos"></span>
+    <button class="icon-btn" id="btnRel" title="Afficher / masquer les relances (R)">↳</button>
+    <button class="icon-btn" id="btnClient" title="Masquer les réponses à l'écran projeté (C)">👁</button>
+    <button class="icon-btn" id="btnFull" title="Plein écran (F)">⛶</button>
+  </header>
+  <div class="disk-banner" id="diskBanner" hidden></div>
+
+  <section class="stage" id="stage">
+    <div class="sec-title" id="secTitle"></div>
+    <h2 class="question" id="question"></h2>
+    <ul class="relances" id="relances"></ul>
+    <div class="answer-wrap">
+      <textarea class="answer" id="answer" placeholder="Réponse, faits, chiffres, citations… (Ctrl+Entrée : question suivante · Ctrl+V : coller une photo)"></textarea>
+      <div class="answer-view" id="answerView" hidden></div>
+      <div class="action-fields" id="actionFields">
+        <input id="who" placeholder="Responsable de l'action">
+        <input id="due" placeholder="Échéance (ex. sem. 40)">
+      </div>
+      <div class="photos" id="photos"></div>
+      <div class="tags" id="tags"></div>
+    </div>
+  </section>
+
+  <footer class="nav">
+    <button id="prev">← Précédente</button>
+    <span class="saved" id="saved">✓ enregistré</span>
+    <span class="hint">←/→ naviguer · Entrée saisir · Échap sortir · Alt+1…5 tags · I photo · P projection · S synthèse · ? aide</span>
+    <button class="next" id="next">Suivante →</button>
+  </footer>
+</main>
+
+<div class="proj-brand"><span class="num" id="projPos"></span><img src="img/logo-decideom.png" alt="DecideOm"><span class="ctx" id="projClient"></span></div>
+<div class="proj-wait" id="projWait">Écran projeté : en attente de la fenêtre d'animation…<br>(ouvre-le avec le bouton « 📽 Écran projeté »)</div>
+
+<div class="overlay" id="synth"><div class="panel" id="synthPanel"></div></div>
+<div class="overlay" id="lightbox"><img id="lightboxImg" alt=""></div>
+<div class="overlay" id="help"><div class="panel help">
+  <button class="icon-btn close" data-close>✕</button>
+  <h2>Raccourcis clavier</h2>
+  <div class="sub">Hors du champ de saisie (Échap pour en sortir)</div>
+  <table>
+    <tr><td><kbd>←</kbd> <kbd>→</kbd> <kbd>PgUp</kbd> <kbd>PgDn</kbd></td><td>Question précédente / suivante (télécommande)</td></tr>
+    <tr><td><kbd>Entrée</kbd> ou <kbd>E</kbd></td><td>Saisir la réponse</td></tr>
+    <tr><td><kbd>1</kbd> … <kbd>5</kbd></td><td>Tags : Décision, Action, Risque, À creuser, Hors périmètre</td></tr>
+    <tr><td><kbd>I</kbd></td><td>Ajouter une photo (ou glisser-déposer, ou <kbd>Ctrl</kbd>+<kbd>V</kbd>)</td></tr>
+    <tr><td><kbd>P</kbd></td><td>Ouvrir l'écran projeté (2e fenêtre à mettre sur le vidéoprojecteur)</td></tr>
+    <tr><td><kbd>X</kbd> / <kbd>V</kbd></td><td>Marquer « sautée » / « à revoir »</td></tr>
+    <tr><td><kbd>S</kbd></td><td>Synthèse (décisions, actions, risques…), aussi affichée à l'écran projeté</td></tr>
+    <tr><td><kbd>R</kbd> · <kbd>C</kbd> · <kbd>M</kbd> · <kbd>F</kbd></td><td>Relances · masquer les réponses à l'écran projeté · sommaire · plein écran</td></tr>
+    <tr><td><kbd>T</kbd></td><td>Démarrer / mettre en pause le chronomètre</td></tr>
+  </table>
+  <div class="sub" style="margin-top:16px">Dans le champ de saisie</div>
+  <table>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>Entrée</kbd> · <kbd>PgDn</kbd></td><td>Question suivante</td></tr>
+    <tr><td><kbd>Alt</kbd>+<kbd>1</kbd> … <kbd>5</kbd></td><td>Basculer un tag</td></tr>
+    <tr><td><kbd>Ctrl</kbd>+<kbd>V</kbd></td><td>Coller une image (capture d'écran, photo copiée)</td></tr>
+    <tr><td><kbd>Échap</kbd></td><td>Sortir du champ</td></tr>
+  </table>
+</div></div>
+<div class="overlay" id="ask"><div class="panel" style="max-width:620px">
+  <h2 id="askTitle"></h2><p class="sub" id="askText" style="white-space:pre-line;font-size:15px"></p>
+  <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+    <button class="icon-btn" id="askNo"></button><button class="icon-btn on" id="askYes" style="background:var(--rouge);border-color:var(--rouge)"></button>
+  </div>
+</div></div>
+<div class="overlay" id="stopped" style="background:var(--fond-2)"><div class="panel" style="max-width:640px;text-align:center">
+  <img src="img/logo-decideom.png" alt="DecideOm" style="height:56px;margin-bottom:14px">
+  <h2>Application arrêtée</h2>
+  <p class="sub" id="stoppedText" style="font-size:15px"></p>
+  <p class="sub">Tu peux fermer cet onglet. Pour reprendre, relance Greffier.</p>
+</div></div>
+<div class="toast" id="toast"></div>
+<div id="print" class="doc"></div>
+
+<script src="questions.js"></script>
+<script src="notes-core.js"></script>
+<script>
+(function () {
+  "use strict";
+  const NC = NotesCore;
+  const { TAGS, isAnswered, stamp } = NC;
+  const DATA = globalThis.ATELIER;
+  const QS = NC.flatten(DATA);
+  const KEY = DATA.storageKey || "decideom-atelier";
+  const SLUG = DATA.slug || "atelier";
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const pref = (k, v) => { try { if (v === undefined) return localStorage.getItem(KEY + "-ui-" + k); localStorage.setItem(KEY + "-ui-" + k, v); } catch (e) { return null; } };
+  function toast(msg) { const t = $("toast"); t.textContent = msg; t.classList.add("show"); clearTimeout(toast.t); toast.t = setTimeout(() => t.classList.remove("show"), 2500); }
+
+  document.title = `${DATA.meta.client || ""} · ${DATA.meta.atelier || "Atelier"}`;
+  $("client").textContent = "× " + (DATA.meta.client || "");
+  $("atelier").textContent = DATA.meta.atelier || "Atelier";
+
+  // =====================================================================
+  // Écran projeté : 2e fenêtre en lecture seule, pilotée par la fenêtre d'animation.
+  // =====================================================================
+  if (new URLSearchParams(location.search).get("vue") === "projection") {
+    document.body.classList.add("projection");
+    $("projClient").innerHTML = `<b>${esc(DATA.meta.client || "")}</b> · ${esc(DATA.meta.atelier || "")}`;
+    $("answer").hidden = true;
+    $("answerView").hidden = false;
+    let waiting = setTimeout(() => ($("projWait").style.display = "grid"), 1500);
+    window.addEventListener("message", (e) => {
+      const m = e.data || {};
+      if (m.type === "render") {
+        clearTimeout(waiting); $("projWait").style.display = "none";
+        const q = m.q;
+        $("secTitle").innerHTML = `<span class="dots9"></span><span>${esc(q.sectionCode)}. ${esc(q.sectionTitle)}</span>`;
+        $("question").innerHTML = (q.star ? '<span class="star">★</span> ' : "") + esc(q.text);
+        $("answerView").textContent = m.answer.text || "";
+        $("photos").innerHTML = m.photos.map((p) => `<div class="photo"><img src="${p.src}" alt=""><span class="cap">${esc(p.caption)}</span></div>`).join("");
+        $("projPos").textContent = String(q.num).padStart(2, "0") + ".";
+        document.body.classList.toggle("client", !!m.hideAnswers);
+      } else if (m.type === "synth") {
+        if (m.html) { $("synthPanel").innerHTML = m.html; $("synth").classList.add("show"); }
+        else $("synth").classList.remove("show");
+      }
+    });
+    if (window.opener) window.opener.postMessage({ type: "hello" }, "*");
+    document.addEventListener("keydown", (e) => {
+      if (e.key.toLowerCase() === "f") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    });
+    return;
+  }
+
+  // =====================================================================
+  // Fenêtre d'animation
+  // =====================================================================
+  const store = NC.createStore(KEY);
+  const photos = NC.createPhotoStore(KEY);
+  const urlCache = new Map();
+  const markdown = () => NC.exportMarkdown(DATA, store.state, { photoDir: "photos" });
+  const saver = NC.createDiskSaver({ key: KEY, data: DATA, store, photos, markdown, onStatus: renderDisk });
+  store.onChange(() => saver.schedule());
+  photos.persistent.then((ok) => { if (!ok) { $("warn").hidden = false; $("warn").textContent = "⚠ Photos non conservées dans ce navigateur : exporte le .zip avant de fermer."; } });
+
+  let idx = Math.min(QS.length - 1, Math.max(0, parseInt(pref("idx") || "0", 10) || 0));
+  const fromHash = QS.findIndex((q) => "#" + q.id === location.hash);
+  if (fromHash >= 0) idx = fromHash;
+
+  // ---------- Sommaire ----------
+  function buildToc() {
+    const toc = $("toc");
+    toc.innerHTML = "";
+    DATA.parts.forEach((part) => {
+      const p = document.createElement("div");
+      p.className = "part";
+      p.textContent = part.title;
+      toc.appendChild(p);
+      part.sections.forEach((s) => {
+        const b = document.createElement("button");
+        b.className = "sec";
+        b.dataset.sec = s.code;
+        b.textContent = `${s.code}. ${s.title}`;
+        b.onclick = () => go(QS.findIndex((q) => q.section === s));
+        toc.appendChild(b);
+        const dots = document.createElement("div");
+        dots.className = "dots";
+        s.questions.forEach((q) => {
+          const d = document.createElement("button");
+          d.className = "dot";
+          d.dataset.q = q.id;
+          d.title = `${q.id} · ${q.text}`;
+          d.onclick = () => go(QS.findIndex((x) => x.id === q.id));
+          dots.appendChild(d);
+        });
+        toc.appendChild(dots);
+      });
+    });
+  }
+  function refreshToc() {
+    const cur = QS[idx];
+    document.querySelectorAll(".toc .dot").forEach((d) => {
+      const q = QS.find((x) => x.id === d.dataset.q);
+      const a = store.get(q.id);
+      d.className = "dot" + (q.star ? " star" : "") + (isAnswered(a) ? " done" : "") + (a.photos.length ? " photo" : "") +
+        (a.status === "skip" ? " skip" : "") + (a.status === "review" ? " review" : "") + (q.id === cur.id ? " current" : "");
+    });
+    document.querySelectorAll(".toc .sec").forEach((b) => b.classList.toggle("current", b.dataset.sec === cur.section.code));
+    const done = QS.filter((q) => isAnswered(store.get(q.id))).length;
+    $("bar").style.width = (100 * done / QS.length) + "%";
+    $("barLabel").textContent = `${done} / ${QS.length} questions renseignées`;
+  }
+
+  // ---------- Tags et statuts ----------
+  TAGS.forEach((t, i) => {
+    const b = document.createElement("button");
+    b.className = "tag";
+    b.dataset.tag = t.id;
+    b.innerHTML = `<span>${t.icon}</span> ${t.label} <kbd>${i + 1}</kbd>`;
+    b.onclick = () => toggleTag(t.id);
+    $("tags").appendChild(b);
+  });
+  $("tags").insertAdjacentHTML("beforeend", '<span class="spacer"></span>');
+  [["skip", "Sautée (X)"], ["review", "À revoir (V)"]].forEach(([s, label]) => {
+    const b = document.createElement("button");
+    b.className = "status";
+    b.dataset.status = s;
+    b.textContent = label;
+    b.onclick = () => toggleStatus(s);
+    $("tags").appendChild(b);
+  });
+  function toggleTag(t) { store.toggleTag(QS[idx].id, t); renderAnswerMeta(); }
+  function toggleStatus(s) { const a = store.get(QS[idx].id); store.set(QS[idx].id, { status: a.status === s ? "" : s }); renderAnswerMeta(); }
+
+  // ---------- Photos ----------
+  async function photoUrl(id) {
+    if (urlCache.has(id)) return urlCache.get(id);
+    const blob = await photos.get(id);
+    const url = blob ? URL.createObjectURL(blob) : "";
+    urlCache.set(id, url);
+    return url;
+  }
+  async function addPhotos(files) {
+    const imgs = [...files].filter((f) => f && f.type && f.type.startsWith("image/"));
+    if (!imgs.length) return;
+    const q = QS[idx];
+    const list = store.get(q.id).photos.slice();
+    for (const f of imgs) {
+      try {
+        const blob = await NC.resizeImage(f);
+        const id = `${q.id}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+        await photos.put(id, blob);
+        saver.putPhoto(id + ".jpg", blob);
+        list.push({ id, file: id + ".jpg", caption: "" });
+      } catch (e) {
+        console.warn(e);
+        toast("Image illisible : " + (f.name || "presse-papiers"));
+      }
+    }
+    store.set(q.id, { photos: list });
+    toast(imgs.length > 1 ? `${imgs.length} photos ajoutées` : "Photo ajoutée");
+    renderPhotos();
+    refreshToc();
+  }
+  async function removePhoto(pid) {
+    const q = QS[idx];
+    if (!confirm("Supprimer cette photo ?")) return;
+    const gone = store.get(q.id).photos.find((p) => p.id === pid);
+    await photos.del(pid);
+    if (gone) saver.delPhoto(gone.file);
+    store.set(q.id, { photos: store.get(q.id).photos.filter((p) => p.id !== pid) });
+    renderPhotos();
+    refreshToc();
+  }
+  async function renderPhotos() {
+    const q = QS[idx];
+    const list = store.get(q.id).photos;
+    const box = $("photos");
+    box.innerHTML = "";
+    for (const p of list) {
+      const d = document.createElement("div");
+      d.className = "photo";
+      d.innerHTML = `<img alt=""><button class="del" title="Supprimer">✕</button><input placeholder="Légende…">`;
+      d.querySelector("img").src = await photoUrl(p.id);
+      d.querySelector("img").onclick = () => { $("lightboxImg").src = d.querySelector("img").src; $("lightbox").classList.add("show"); };
+      d.querySelector(".del").onclick = () => removePhoto(p.id);
+      const cap = d.querySelector("input");
+      cap.value = p.caption || "";
+      cap.oninput = () => {
+        store.set(q.id, { photos: store.get(q.id).photos.map((x) => (x.id === p.id ? { ...x, caption: cap.value } : x)) });
+        sendProjection();
+      };
+      box.appendChild(d);
+    }
+    const add = document.createElement("button");
+    add.className = "add-photo";
+    add.innerHTML = "📷 Ajouter une photo<br><small>ou glisser / Ctrl+V</small>";
+    add.onclick = pickPhotos;
+    box.appendChild(add);
+    sendProjection();
+  }
+  async function pickPhotos() { addPhotos(await NC.pickFile("image/*", true)); }
+
+  // Glisser-déposer et coller
+  const stage = $("stage");
+  ["dragenter", "dragover"].forEach((ev) => stage.addEventListener(ev, (e) => {
+    if ([...(e.dataTransfer.items || [])].some((i) => i.kind === "file")) { e.preventDefault(); stage.classList.add("drop"); }
+  }));
+  ["dragleave", "drop"].forEach((ev) => stage.addEventListener(ev, (e) => {
+    if (ev === "dragleave" && stage.contains(e.relatedTarget)) return;
+    stage.classList.remove("drop");
+  }));
+  stage.addEventListener("drop", (e) => { e.preventDefault(); addPhotos(e.dataTransfer.files); });
+  document.addEventListener("paste", (e) => {
+    const files = [...(e.clipboardData.items || [])].filter((i) => i.type.startsWith("image/")).map((i) => i.getAsFile());
+    if (files.length) { e.preventDefault(); addPhotos(files); }
+  });
+
+  // ---------- Rendu ----------
+  function render() {
+    const q = QS[idx];
+    const s = q.section;
+    $("crumb").innerHTML = `${esc(q.part.title)} › <b>${s.code}. ${esc(s.title)}</b>`;
+    $("secTitle").innerHTML = `<span class="dots9"></span><span>${s.code}. ${esc(s.title)}</span><span class="meta">${s.minutes} min · ${esc(s.cible)} · ${q.id}</span>`;
+    $("question").innerHTML = (q.star ? '<span class="star">★</span> ' : "") + esc(q.text);
+    $("relances").innerHTML = q.relances.map((r) => `<li>${esc(r)}</li>`).join("");
+    const a = store.get(q.id);
+    $("answer").value = a.text;
+    $("who").value = a.who;
+    $("due").value = a.due;
+    $("pos").textContent = `${idx + 1}/${QS.length}`;
+    $("prev").disabled = idx === 0;
+    $("next").textContent = idx === QS.length - 1 ? "Synthèse →" : "Suivante →";
+    renderAnswerMeta();
+    renderChrono();
+    renderPhotos();
+    pref("idx", idx);
+    history.replaceState(null, "", "#" + q.id);
+  }
+  function renderAnswerMeta() {
+    const a = store.get(QS[idx].id);
+    document.querySelectorAll(".tag").forEach((b) => b.classList.toggle("on", a.tags.includes(b.dataset.tag)));
+    document.querySelectorAll(".status").forEach((b) => b.classList.toggle("on", a.status === b.dataset.status));
+    $("actionFields").classList.toggle("show", a.tags.includes("action"));
+    refreshToc();
+  }
+  function go(i) {
+    if (i < 0) return;
+    if (i >= QS.length) { openSynth(); return; }
+    idx = i;
+    render();
+  }
+
+  // ---------- Saisie ----------
+  function flashSaved() { $("saved").classList.add("show"); clearTimeout(flashSaved.t); flashSaved.t = setTimeout(() => $("saved").classList.remove("show"), 900); }
+  $("answer").addEventListener("input", (e) => { store.set(QS[idx].id, { text: e.target.value }); refreshToc(); flashSaved(); sendProjection(); });
+  $("who").addEventListener("input", (e) => { store.set(QS[idx].id, { who: e.target.value }); flashSaved(); });
+  $("due").addEventListener("input", (e) => { store.set(QS[idx].id, { due: e.target.value }); flashSaved(); });
+  const syncMeta = () => { $("metaDate").value = store.state.meta.date || ""; $("metaPart").value = store.state.meta.participants || ""; };
+  syncMeta();
+  $("metaDate").addEventListener("input", (e) => store.setMeta({ date: e.target.value }));
+  $("metaPart").addEventListener("input", (e) => store.setMeta({ participants: e.target.value }));
+  // Un autre onglet a modifié la session : on se recale (sauf si on est en train d'écrire ici).
+  store.onChange((st, external) => { if (external && document.activeElement !== $("answer")) render(); });
+
+  // ---------- Chronomètre par partie ----------
+  function chronoState() {
+    const c = store.state.meta.chrono || (store.state.meta.chrono = {});
+    const k = QS[idx].partIndex;
+    return c[k] || (c[k] = { acc: 0, start: null });
+  }
+  const elapsedMs = (c) => c.acc + (c.start ? Date.now() - c.start : 0);
+  function plannedUntilCurrentSection() {
+    const q = QS[idx];
+    let m = 0;
+    for (const s of q.part.sections) { m += s.minutes; if (s === q.section) break; }
+    return m;
+  }
+  const fmt = (ms) => { const t = Math.floor(ms / 1000); return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
+  function renderChrono() {
+    const c = chronoState();
+    const planned = plannedUntilCurrentSection();
+    const el = $("chrono");
+    el.innerHTML = `${fmt(elapsedMs(c))} / ${planned} min <button title="Démarrer / pause (T)">${c.start ? "⏸" : "▶"}</button>`;
+    el.classList.toggle("late", elapsedMs(c) > planned * 60000);
+    el.querySelector("button").onclick = toggleChrono;
+  }
+  function toggleChrono() {
+    const c = chronoState();
+    if (c.start) { c.acc += Date.now() - c.start; c.start = null; } else { c.start = Date.now(); }
+    store.setMeta({ chrono: store.state.meta.chrono });
+    renderChrono();
+  }
+  setInterval(renderChrono, 1000);
+
+  // ---------- Synthèse ----------
+  const GROUPS = [
+    ["decision", "Décisions", ["Décision", "Question"]],
+    ["action", "Actions", ["Action", "Qui", "Échéance", "Question"]],
+    ["risque", "Risques et points de vigilance", ["Risque", "Question"]],
+    ["creuser", "Points ouverts (à creuser)", ["Note", "Question"]],
+    ["hors", "Parking (hors périmètre)", ["Note", "Question"]],
+  ];
+  function synthTables(cls) {
+    let html = "";
+    GROUPS.forEach(([id, title, cols]) => {
+      const list = QS.filter((q) => store.get(q.id).tags.includes(id));
+      html += `<h3><span class="pill" style="background:var(--tag-${id})"></span>${title} (${list.length})</h3>`;
+      if (!list.length) { html += `<div class="empty">Aucun élément</div>`; return; }
+      html += `<table class="${cls || ""}"><tr>${cols.map((c) => `<th>${c}</th>`).join("")}</tr>`;
+      list.forEach((q) => {
+        const a = store.get(q.id);
+        const qcell = `<td class="q">${q.id} · ${esc(q.text)}</td>`;
+        const txt = esc(a.text || "—").replace(/\n/g, "<br>");
+        html += id === "action"
+          ? `<tr><td>${txt}</td><td>${esc(a.who || "—")}</td><td>${esc(a.due || "—")}</td>${qcell}</tr>`
+          : `<tr><td>${txt}</td>${qcell}</tr>`;
+      });
+      html += `</table>`;
+    });
+    return html;
+  }
+  function openSynth() {
+    const done = QS.filter((q) => isAnswered(store.get(q.id))).length;
+    let html = `<h2>Synthèse de l'atelier</h2><div class="sub">${done} / ${QS.length} questions renseignées · à valider en séance</div>` + synthTables();
+    const missing = QS.filter((q) => q.star && !isAnswered(store.get(q.id)));
+    html += `<h3>★ Questions prioritaires non traitées (${missing.length})</h3>`;
+    html += missing.length ? `<ul>${missing.map((q) => `<li>${q.id} · ${esc(q.text)}</li>`).join("")}</ul>` : `<div class="empty">Aucune</div>`;
+    $("synthPanel").innerHTML = `<button class="icon-btn close" data-close>✕</button>` + html;
+    $("synth").classList.add("show");
+    post({ type: "synth", html });
+  }
+  document.querySelectorAll(".overlay:not(#ask):not(#stopped)").forEach((o) => o.addEventListener("click", (e) => {
+    if (e.target === o || e.target.hasAttribute("data-close") || o.id === "lightbox") closeOverlay(o);
+  }));
+  function closeOverlay(o) { o.classList.remove("show"); if (o.id === "synth") post({ type: "synth", html: null }); }
+  const anyOverlay = () => document.querySelector(".overlay.show");
+
+  // ---------- Écran projeté ----------
+  let proj = null;
+  const post = (m) => { if (proj && !proj.closed) proj.postMessage(m, "*"); };
+  function openProjection() {
+    if (proj && !proj.closed) { proj.focus(); return; }
+    proj = window.open(location.pathname + "?vue=projection", SLUG + "-projection", "popup,width=1280,height=720");
+    if (!proj) { toast("Fenêtre bloquée : autorise les pop-ups pour cette page"); return; }
+    $("projBadge").hidden = false;
+    toast("Glisse la nouvelle fenêtre sur le vidéoprojecteur, puis F pour le plein écran");
+  }
+  setInterval(() => { $("projBadge").hidden = !(proj && !proj.closed); }, 2000);
+  const dataUrlCache = new Map();
+  async function photoDataUrl(id) {
+    if (!dataUrlCache.has(id)) { const b = await photos.get(id); dataUrlCache.set(id, b ? await NC.blobToDataURL(b) : ""); }
+    return dataUrlCache.get(id);
+  }
+  async function sendProjection() {
+    if (!proj || proj.closed) return;
+    const q = QS[idx];
+    const a = store.get(q.id);
+    const ph = [];
+    for (const p of a.photos) ph.push({ src: await photoDataUrl(p.id), caption: p.caption || "" });
+    post({
+      type: "render",
+      q: { text: q.text, star: q.star, sectionCode: q.section.code, sectionTitle: q.section.title, num: idx + 1 },
+      answer: { text: a.text },
+      photos: ph,
+      hideAnswers: document.body.classList.contains("hide-proj"),
+    });
+  }
+  window.addEventListener("message", (e) => { if (e.data && e.data.type === "hello" && e.source === proj) sendProjection(); });
+
+  // ---------- Exports ----------
+  const baseName = () => `${SLUG}_${stamp()}`;
+  function allPhotos() { return QS.flatMap((q) => store.get(q.id).photos); }
+
+  async function exportZip() {
+    const files = [{ name: "notes.md", data: markdown() }, { name: "session.json", data: JSON.stringify(store.state, null, 1) }];
+    let missing = 0;
+    for (const p of allPhotos()) {
+      const b = await photos.get(p.id);
+      if (b) files.push({ name: "photos/" + p.file, data: new Uint8Array(await b.arrayBuffer()) });
+      else missing++;
+    }
+    NC.download(baseName() + ".zip", NC.makeZip(files));
+    toast(missing ? `Export fait, mais ${missing} photo(s) introuvable(s)` : `Export : notes.md + ${files.length - 2} photo(s)`);
+  }
+  async function exportJson() {
+    const ph = {};
+    for (const p of allPhotos()) { const b = await photos.get(p.id); if (b) ph[p.id] = await NC.blobToDataURL(b); }
+    NC.download(baseName() + ".json", JSON.stringify({ format: "decideom-atelier", version: 2, state: store.state, photos: ph }), "application/json");
+  }
+  async function importJson() {
+    const [f] = await NC.pickFile(".json,application/json");
+    if (!f) return;
+    try {
+      const obj = JSON.parse(await f.text());
+      if (!confirm("Remplacer la session en cours par ce fichier ?")) return;
+      const state = obj.format === "decideom-atelier" ? obj.state : obj;
+      for (const [id, url] of Object.entries(obj.photos || {})) await photos.put(id, await NC.dataURLToBlob(url));
+      urlCache.clear(); dataUrlCache.clear();
+      store.load(state);
+      syncMeta();
+      render();
+      if (saver.active()) { await saver.syncPhotos(); await saver.flush(); }
+      toast("Session importée");
+    } catch (e) { console.warn(e); toast("Fichier illisible"); }
+  }
+  async function resetSession() {
+    const msg = saver.active()
+      ? "Vider toutes les réponses et les photos ?\n\nUne copie de la session actuelle sera gardée dans sorties/historique/."
+      : "Vider toutes les réponses et les photos ? (pense à exporter avant)";
+    if (!confirm(msg)) return;
+    if (saver.active()) await saver.archive("avant-nouvelle-session");
+    for (const p of allPhotos()) await photos.del(p.id);
+    urlCache.clear(); dataUrlCache.clear();
+    store.reset();
+    syncMeta();
+    go(0);
+  }
+
+  // ---------- Rapport PDF (impression) ----------
+  async function buildReport() {
+    const m = DATA.meta;
+    const st = store.state;
+    const done = QS.filter((q) => isAnswered(store.get(q.id))).length;
+    let h = `<div class="doc-brand"><img src="img/logo-decideom.png" alt="DecideOm"><div class="who"><b>${esc(m.client || "")}</b>${esc(m.mission || "")}</div></div>
+      <h1>Notes d'atelier<br>${esc(m.atelier || "")}</h1>
+      <table class="meta"><tr><td>Date</td><td>${esc(st.meta.date || "")}</td></tr>
+      <tr><td>Participants</td><td>${esc(st.meta.participants || "—")}</td></tr>
+      <tr><td>Animation</td><td>${esc(m.animateurs || "")}</td></tr>
+      <tr><td>Avancement</td><td>${done} / ${QS.length} questions renseignées</td></tr></table>`;
+    h += `<h2>Synthèse</h2>` + synthTables("t").replace(/<h3><span class="pill"[^>]*><\/span>/g, "<h3>");
+    h += `<h2>Notes détaillées</h2>`;
+    for (const part of DATA.parts) {
+      const secs = part.sections.filter((s) => s.questions.some((q) => isAnswered(store.get(q.id))));
+      if (!secs.length) continue;
+      h += `<h3>${esc(part.title)}</h3>`;
+      for (const s of secs) {
+        h += `<h4>${s.code}. ${esc(s.title)}</h4>`;
+        for (const q of s.questions) {
+          const a = store.get(q.id);
+          if (!isAnswered(a)) continue;
+          const tags = a.tags.map((t) => (TAGS.find((x) => x.id === t) || {}).label).filter(Boolean);
+          h += `<div class="qa"><div class="qt">${q.star ? "★ " : ""}${esc(q.text)} <span class="id">${q.id}</span></div>`;
+          if (tags.length) h += `<div class="tg">${tags.join(" · ")}${a.who ? ` · Qui : ${esc(a.who)}` : ""}${a.due ? ` · Échéance : ${esc(a.due)}` : ""}</div>`;
+          if (a.text && a.text.trim()) h += `<div class="ans">${esc(a.text.trim())}</div>`;
+          h += `</div>`;
+          for (const p of a.photos) h += `<figure><img src="${await photoUrl(p.id)}" alt=""><figcaption>${esc(p.caption || "Photo · " + q.id)}</figcaption></figure>`;
+        }
+      }
+    }
+    const missing = QS.filter((q) => !isAnswered(store.get(q.id)));
+    if (missing.length) h += `<h2>Questions non traitées</h2><ul>${missing.map((q) => `<li>${q.id} · ${q.star ? "★ " : ""}${esc(q.text)}</li>`).join("")}</ul>`;
+    h += `<div class="foot">Document de travail généré le ${new Date().toLocaleString("fr-FR")} · DecideOm</div>`;
+    return h;
+  }
+  async function printReport() {
+    $("print").innerHTML = await buildReport();
+    await Promise.all([...$("print").querySelectorAll("img")].map((i) => (i.complete ? null : new Promise((r) => { i.onload = i.onerror = r; }))));
+    const t = document.title;
+    document.title = `${SLUG}_notes_${store.state.meta.date || ""}`;
+    window.print();
+    document.title = t;
+  }
+
+  // ---------- Boutons ----------
+  $("btnZip").onclick = exportZip;
+  $("btnPdf").onclick = printReport;
+  $("btnCr").onclick = () => window.open("cr.html", SLUG + "-cr");
+  $("btnMd").onclick = () => NC.download(baseName() + ".md", markdown(), "text/markdown;charset=utf-8");
+  $("btnJson").onclick = exportJson;
+  $("btnImport").onclick = importJson;
+  $("btnReset").onclick = resetSession;
+  $("btnSynth").onclick = openSynth;
+  $("btnProj").onclick = openProjection;
+  $("btnHelp").onclick = () => $("help").classList.add("show");
+  $("prev").onclick = () => go(idx - 1);
+  $("next").onclick = () => go(idx + 1);
+
+  $("btnSide").onclick = () => document.body.classList.toggle(matchMedia("(max-width: 800px)").matches ? "side-open" : "no-side");
+  $("btnRel").onclick = () => { const on = document.body.classList.toggle("hide-relances"); $("btnRel").classList.toggle("on", !on); pref("hideRel", on ? "1" : "0"); };
+  // Avec un écran projeté : masque les réponses là-bas seulement. Sans : masque ici (écran dupliqué).
+  $("btnClient").onclick = () => {
+    const cls = proj && !proj.closed ? "hide-proj" : "client";
+    const on = document.body.classList.toggle(cls);
+    $("btnClient").classList.toggle("on", on);
+    toast(on ? "Réponses masquées à l'écran projeté" : "Réponses visibles à l'écran projeté");
+    sendProjection();
+  };
+  $("btnFull").onclick = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen());
+  if (pref("hideRel") === "1") document.body.classList.add("hide-relances");
+  $("btnRel").classList.toggle("on", !document.body.classList.contains("hide-relances"));
+
+  // ---------- Clavier ----------
+  const editing = () => ["TEXTAREA", "INPUT"].includes(document.activeElement.tagName);
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "PageDown") { e.preventDefault(); go(idx + 1); return; }
+    if (e.key === "PageUp") { e.preventDefault(); go(idx - 1); return; }
+    if (anyOverlay()) { if (e.key === "Escape") closeOverlay(anyOverlay()); return; }
+    if (editing()) {
+      if (e.key === "Escape") { document.activeElement.blur(); e.preventDefault(); }
+      else if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); go(idx + 1); $("answer").focus(); }
+      else if (e.altKey && /^[1-5]$/.test(e.key)) { e.preventDefault(); toggleTag(TAGS[+e.key - 1].id); }
+      return;
+    }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === " ") { e.preventDefault(); go(idx + 1); }
+    else if (e.key === "ArrowLeft" || e.key === "ArrowUp") { e.preventDefault(); go(idx - 1); }
+    else if (e.key === "Enter" || k === "e") { e.preventDefault(); const t = $("answer"); t.focus(); t.setSelectionRange(t.value.length, t.value.length); }
+    else if (/^[1-5]$/.test(e.key)) toggleTag(TAGS[+e.key - 1].id);
+    else if (k === "i") pickPhotos();
+    else if (k === "p") openProjection();
+    else if (k === "x") toggleStatus("skip");
+    else if (k === "v") toggleStatus("review");
+    else if (k === "s") openSynth();
+    else if (k === "r") $("btnRel").click();
+    else if (k === "c") $("btnClient").click();
+    else if (k === "m") $("btnSide").click();
+    else if (k === "f") $("btnFull").click();
+    else if (k === "t") toggleChrono();
+    else if (e.key === "?") $("help").classList.add("show");
+  });
+
+  // ---------- Sauvegarde sur disque : témoin, bandeau, restauration ----------
+  let diskStatus = saver.status, bannerLater = false;
+  function ago(d) {
+    const s = Math.round((Date.now() - d) / 1000);
+    return s < 5 ? "à l'instant" : s < 60 ? `il y a ${s} s` : `il y a ${Math.round(s / 60)} min`;
+  }
+  function renderDisk(st) {
+    if (st) diskStatus = st;
+    $("btnStop").hidden = diskStatus.mode !== "serveur";
+    const st2 = diskStatus, b = $("diskBadge");
+    const where = st2.mode === "serveur" ? "sorties/ (serveur local)" : `dossier « ${st2.label} »`;
+    if (st2.error) { b.className = "disk err"; b.textContent = "⚠ Sauvegarde disque en échec"; b.title = st2.error; }
+    else if (saver.active()) {
+      b.className = st2.pending ? "disk wait" : "disk ok";
+      b.textContent = st2.pending ? "💾 enregistrement…" : st2.lastSave ? `💾 ${ago(st2.lastSave)}` : "💾 prêt";
+      b.title = "Sauvegarde continue dans " + where;
+    } else { b.className = "disk warn"; b.textContent = "⚠ Navigateur seulement"; b.title = "Les notes ne sont pas encore enregistrées sur le disque"; }
+    renderBanner();
+  }
+  function renderBanner() {
+    const el = $("diskBanner"), st2 = diskStatus;
+    const html = (cls, inner) => { el.className = "disk-banner " + cls; el.innerHTML = inner; el.hidden = false; };
+    if (st2.error) {
+      html("err", `<span>⚠ <b>La sauvegarde sur disque a échoué</b> : ${esc(st2.error)}. Les notes restent dans le navigateur.</span>
+        <button class="main" data-act="retry">Réessayer</button>${st2.mode === "dossier" ? '<button data-act="link">Choisir un autre dossier</button>' : ""}`);
+    } else if (saver.active() || bannerLater) {
+      el.hidden = true;
+    } else if (st2.mode === "dossier-a-reprendre") {
+      html("", `<span>💾 Reprendre la sauvegarde continue dans le dossier <b>« ${esc(st2.label)} »</b> ?</span>
+        <button class="main" data-act="resume">Reprendre</button><button data-act="link">Autre dossier</button><button class="later" data-act="later">Plus tard</button>`);
+    } else if (st2.mode === "dossier-possible") {
+      html("", `<span>⚠ Les notes ne sont enregistrées que dans ce navigateur. <b>Choisis un dossier de sauvegarde</b> (conseil : <code>${esc(DATA.dossier || "atelier")}/sorties</code>) : tout y sera écrit au fil de l'eau.</span>
+        <button class="main" data-act="link">💾 Choisir le dossier</button><button class="later" data-act="later">Plus tard</button>`);
+    } else if (st2.mode === "indisponible") {
+      html("", `<span>⚠ Ce navigateur ne peut pas écrire sur le disque : les notes ne sont que dans le navigateur.
+        Lance plutôt l'atelier avec <b>Greffier</b> (double-clic sur <code>greffier-windows-x64.exe</code> sous Windows), ou ouvre cette page dans Chrome / Edge.</span>
+        <button data-act="zip">Exporter un .zip maintenant</button><button class="later" data-act="later">Plus tard</button>`);
+    } else el.hidden = true;
+  }
+  function ask(title, text, yes, no) {
+    return new Promise((resolve) => {
+      $("askTitle").textContent = title; $("askText").textContent = text;
+      $("askYes").textContent = yes; $("askNo").textContent = no;
+      const done = (v) => { $("ask").classList.remove("show"); resolve(v); };
+      $("askYes").onclick = () => done(true); $("askNo").onclick = () => done(false);
+      $("ask").classList.add("show");
+    });
+  }
+  async function afterLink(result) {
+    if (result && result.backup) {
+      const ok = await ask("Sauvegarde trouvée sur le disque",
+        `Le disque contient ${result.count} question(s) renseignée(s), contre ${result.localCount} dans ce navigateur.\n\nRestaurer la sauvegarde du disque ? Si tu gardes la version du navigateur, celle du disque est conservée dans historique/.`,
+        "Restaurer depuis le disque", "Garder ce navigateur");
+      if (ok) {
+        await saver.archive("avant-restauration");   // écrit l'état du navigateur dans l'historique avant d'écraser
+        await saver.restore(result.backup);
+        urlCache.clear(); dataUrlCache.clear();
+        syncMeta(); render();
+        toast("Session restaurée depuis le disque");
+      } else {
+        await saver.archiveSession(result.backup.session, "disque-remplace");
+        await saver.syncPhotos(); await saver.flush();
+      }
+    }
+  }
+  $("btnStop").onclick = async () => {
+    const ok = await ask("Arrêter l'application ?",
+      "Ce qui est en attente est enregistré sur le disque, puis l'application s'arrête. Les notes restent dans le dossier sorties/ de l'atelier.",
+      "Arrêter", "Annuler");
+    if (!ok) return;
+    try {
+      await saver.flush();
+      await fetch("/api/arreter", { method: "POST" });
+      $("stoppedText").textContent = "Les notes sont enregistrées dans : " + diskStatus.label;
+      $("stopped").classList.add("show");
+    } catch (e) { toast("Arrêt impossible : " + e.message); }
+  };
+  $("diskBanner").addEventListener("click", async (e) => {
+    const act = e.target.dataset && e.target.dataset.act;
+    if (!act) return;
+    try {
+      if (act === "link") await afterLink(await saver.linkFolder());
+      else if (act === "resume") await afterLink(await saver.resumeFolder());
+      else if (act === "retry") await saver.flush();
+      else if (act === "zip") exportZip();
+      else if (act === "later") { bannerLater = true; renderBanner(); }
+    } catch (err) { if (err && err.name !== "AbortError") toast("Dossier non accessible : " + err.message); }
+  });
+  $("diskBadge").onclick = () => { bannerLater = false; renderBanner(); if (saver.active()) toast(diskStatus.mode === "serveur" ? `Sauvegarde continue dans ${diskStatus.label}` : `Sauvegarde continue dans le dossier « ${diskStatus.label} »`); };
+  setInterval(() => renderDisk(), 1000);
+  // Fermeture ou changement d'onglet : on écrit tout de suite ce qui est en attente.
+  document.addEventListener("visibilitychange", () => { if (document.hidden) saver.flush(); });
+  window.addEventListener("beforeunload", (e) => { if (saver.status.pending) { saver.flush(); e.preventDefault(); e.returnValue = ""; } });
+
+  buildToc();
+  render();
+  saver.init().then(afterLink).catch((e) => console.warn("[sauvegarde]", e));
+})();
+</script>
+</body>
+</html>

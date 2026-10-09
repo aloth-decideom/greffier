@@ -1,0 +1,48 @@
+# Compile Greffier pour Windows, macOS et Linux.
+# - À chaque push sur main : binaires disponibles dans l'onglet Actions (artefact).
+# - À chaque étiquette v* (ex. git tag v1.0.0 && git push --tags) : release GitHub avec les binaires.
+name: Binaires greffier
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**", "exemple/**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # nécessaire pour publier la release
+
+jobs:
+  compiler:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Vérifier et tester
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; echo "Code non formaté (gofmt)"; exit 1; }
+          go vet ./...
+          go test ./...
+
+      - name: Compiler
+        env:
+          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}
+        run: ./compiler.sh "$VERSION"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: greffier-binaires
+          path: dist/*
+          if-no-files-found: error
+
+      - name: Publier la release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" dist/* --title "Greffier ${{ github.ref_name }}" --generate-notes

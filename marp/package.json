@@ -1,0 +1,5 @@
+{
+  "name": "greffier-marp",
+  "private": true,
+  "description": "marp-cli (facultatif) : utilisé par Greffier pour générer <atelier>/marp/slides.html"
+}

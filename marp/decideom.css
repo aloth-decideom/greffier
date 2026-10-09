@@ -1,0 +1,52 @@
+/* @theme decideom */
+/* Thème Marp aux couleurs de la charte DecideOm (TemplateDecideOm2026). Polices et logo copiés par Greffier. */
+@import 'default';
+
+@font-face { font-family: "Poppins"; font-weight: 400; src: url("fonts/poppins-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Poppins"; font-weight: 600; src: url("fonts/poppins-latin-600-normal.woff2") format("woff2"); }
+@font-face { font-family: "Open Sans"; font-weight: 400; src: url("fonts/open-sans-latin-400-normal.woff2") format("woff2"); }
+@font-face { font-family: "Open Sans"; font-weight: 600; src: url("fonts/open-sans-latin-600-normal.woff2") format("woff2"); }
+
+section {
+  font-family: "Open Sans", system-ui, sans-serif;
+  color: #7f7f7f;
+  background: #fff url("img/logo-decideom.png") no-repeat center bottom 22px / auto 34px;
+  border-bottom: 4px solid #ea232f;
+  padding: 70px 90px 90px;
+  font-size: 26px;
+}
+/* N° de page façon modèle : « 05. » en bas à gauche */
+section::after { content: attr(data-marpit-pagination) "."; left: 34px; right: auto; bottom: 26px; font-family: "Poppins", sans-serif; font-size: 18px; color: #474747; }
+footer { display: none; }
+h1, h2, h3 { font-family: "Poppins", sans-serif; color: #474747; font-weight: 400; }
+strong { color: #474747; font-weight: 600; }
+ul li::marker { color: #ea232f; }
+
+/* Titre avec le motif 3 × 3 pastilles rouges */
+h1 { font-size: 44px; display: flex; align-items: center; gap: 26px; }
+h1::before { content: ""; flex: none; width: 46px; height: 46px; background: radial-gradient(circle, #ea232f 0 34%, transparent 38%) 0 0 / 33.333% 33.333%; }
+
+/* Couverture : cartouche blanc ombré, titre rouge */
+section.cover { justify-content: center; padding-left: 110px; background: #fff url("img/logo-decideom.png") no-repeat left 110px top 70px / auto 90px; }
+section.cover h1 { color: #ea232f; font-size: 54px; }
+section.cover h1::before { display: none; }
+section.cover p { color: #474747; font-size: 30px; font-family: "Poppins", sans-serif; }
+section.cover::after { display: none; }
+
+/* Intercalaire de section */
+section.section { justify-content: center; padding-left: 110px; }
+section.section h1 { font-size: 56px; }
+section.section .part { color: #9a9a9a; text-transform: uppercase; letter-spacing: .08em; font-size: 20px; font-family: "Poppins", sans-serif; }
+section.section p { color: #7f7f7f; }
+
+/* Slide question */
+.qmeta { display: flex; align-items: center; gap: 16px; color: #ea232f; font-family: "Poppins", sans-serif; font-size: 20px; margin-bottom: 26px; }
+.qmeta::before { content: ""; width: 30px; height: 30px; background: radial-gradient(circle, #ea232f 0 34%, transparent 38%) 0 0 / 33.333% 33.333%; }
+section h2 { font-size: 44px; line-height: 1.25; }
+.star { color: #ea232f; }
+
+/* Ordre du jour sur deux colonnes */
+section.agenda { columns: 2; column-gap: 60px; font-size: 20px; display: block; padding-top: 60px; }
+section.agenda h1 { column-span: all; margin-bottom: 24px; }
+section.agenda p { break-after: avoid; color: #474747; font-family: "Poppins", sans-serif; margin: 0 0 6px; }
+section.agenda ul { margin-top: 0; break-inside: avoid; }

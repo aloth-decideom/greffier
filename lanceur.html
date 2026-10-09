@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Greffier · DecideOm</title>
+<link rel="icon" href="/static/img/logo-decideom.png">
+<link rel="stylesheet" href="/static/theme.css">
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; font-family: var(--font); color: var(--texte-fort); background: var(--fond-2); border-bottom: 4px solid var(--rouge); }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  header { background: var(--fond); box-shadow: var(--ombre); }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 28px; }
+  header .wrap { display: flex; align-items: center; justify-content: space-between; height: 76px; }
+  header img { height: 42px; }
+  header .wrap > .tag { margin-left: auto; margin-right: 18px; }
+  .btn.stop { padding: 8px 14px; font-size: 14px; }
+  .btn.stop.confirm { background: var(--rouge-fonce); color: #fff; border-color: var(--rouge-fonce); }
+  .arrete { text-align: center; padding: 80px 20px; }
+  .arrete h1 { font-family: var(--font-titre); font-weight: 400; color: var(--encre); }
+  header .tag { font-family: var(--font-titre); color: var(--gris); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; }
+  main { padding: 44px 0 60px; }
+  .titre { display: flex; gap: 22px; align-items: center; margin-bottom: 30px; --dots-size: 46px; }
+  .titre h1 { margin: 0; font-size: 34px; font-weight: 400; }
+  .titre p { margin: 6px 0 0; color: var(--texte); }
+
+  .actions { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: stretch; margin-bottom: 34px; }
+  .btn { border: 0; border-radius: 10px; padding: 14px 22px; font-family: var(--font-titre); font-weight: 500; font-size: 16px; background: var(--rouge); color: #fff; }
+  .btn:hover { background: var(--rouge-fonce); }
+  .btn.sec { background: var(--fond); color: var(--encre); border: 1.5px solid var(--ligne); }
+  .btn.sec:hover { border-color: var(--rouge); color: var(--rouge); }
+  .btn:disabled { opacity: .55; cursor: wait; }
+  .chemin { display: flex; gap: 8px; }
+  .chemin input { flex: 1; min-width: 0; border: 1.5px solid var(--ligne); border-radius: 10px; padding: 12px 14px; background: var(--fond); font-size: 14px; }
+  .chemin input:focus { outline: none; border-color: var(--rouge); }
+
+  h2 { font-family: var(--font-titre); font-weight: 500; color: var(--encre); font-size: 18px; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--filet); }
+  .liste { display: grid; gap: 12px; margin-bottom: 30px; }
+  .carte { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; padding: 16px 20px; border-radius: 12px; }
+  .carte .t { font-family: var(--font-titre); color: var(--encre); font-size: 16px; font-weight: 500; }
+  .carte .t b { color: var(--rouge); font-weight: 600; margin-right: 8px; }
+  .carte .m { font-size: 13px; color: var(--texte); margin-top: 3px; }
+  .carte .p { font-family: var(--mono); font-size: 12px; color: var(--gris); margin-top: 4px; word-break: break-all; }
+  .carte .e { color: var(--rouge-fonce); font-size: 13px; margin-top: 4px; }
+  .vide { color: var(--gris); font-style: italic; padding: 8px 2px; }
+  .msg { display: none; padding: 12px 16px; border-radius: 10px; margin-bottom: 22px; font-size: 14px; white-space: pre-line; }
+  .msg.show { display: block; }
+  .msg.err { background: var(--rouge-clair); color: var(--rouge-fonce); border: 1px solid var(--filet); }
+  .msg.info { background: #f1f8f4; color: var(--ok); border: 1px solid #b9d8c6; }
+  .aide { font-size: 13px; color: var(--texte); line-height: 1.6; }
+  .aide code { background: var(--fond); border: 1px solid var(--ligne); border-radius: 4px; padding: 1px 6px; font-size: 12px; }
+  @media (max-width: 700px) { .actions { grid-template-columns: 1fr; } .carte { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header class="cartouche"><div class="wrap"><img src="/static/img/logo-decideom.png" alt="DecideOm"><span class="tag">Solutions Data &amp; IA</span><button class="btn sec stop" id="arreter" title="Arrête Greffier">⏻ Arrêter l'application</button></div></header>
+<main class="wrap">
+  <div class="titre"><span class="dots9"></span><div class="titre-dm"><h1>Greffier<b>Choisir un atelier</b></h1><p>Sélectionne le dossier de l'atelier (celui qui contient <code>questions.md</code>). Les notes y seront enregistrées en continu, dans <code>sorties/</code>.</p></div></div>
+
+  <div class="msg" id="msg"></div>
+
+  <div class="actions">
+    <button class="btn" id="parcourir">📂 Parcourir…</button>
+    <div class="chemin"><input id="chemin" placeholder="…ou colle le chemin du dossier (ex. C:\Missions\Client\atelier-01)"><button class="btn sec" id="ouvrirChemin">Ouvrir</button></div>
+  </div>
+
+  <h2>Ateliers récents et à proximité</h2>
+  <div class="liste" id="liste"><div class="vide">Recherche…</div></div>
+
+  <div class="aide">
+    <b>Bon à savoir</b><br>
+    · Garde ouverte la fenêtre de l'application pendant l'atelier : c'est elle qui écrit sur le disque.<br>
+    · Pour modifier les questions : édite <code>questions.md</code> dans le dossier de l'atelier, puis recharge la page de l'atelier.<br>
+    · Pour un nouvel atelier : copie un dossier d'atelier existant et adapte son <code>questions.md</code>.
+  </div>
+</main>
+<script>
+(function () {
+  "use strict";
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const msg = (text, kind) => { const m = $("msg"); m.textContent = text; m.className = "msg show " + (kind || "err"); };
+
+  const inconnu = new URLSearchParams(location.search).get("inconnu");
+  if (inconnu) msg(`L'atelier « ${inconnu} » n'est plus connu de l'application (dossier déplacé ?) : choisis à nouveau son dossier.`);
+
+  async function post(url, body) {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+    return r.json();
+  }
+  async function ouvrir(chemin, bouton) {
+    if (!chemin) return;
+    const btns = document.querySelectorAll("button");
+    btns.forEach((b) => (b.disabled = true));
+    if (bouton) bouton.textContent = "Préparation…";
+    try {
+      const r = await post("/api/ouvrir", { chemin });
+      if (r.url) { location.href = r.url; return; }
+      msg(r.erreur || "Impossible d'ouvrir ce dossier.");
+    } catch (e) { msg("L'application ne répond pas : est-elle toujours lancée ?"); }
+    btns.forEach((b) => (b.disabled = false));
+    if (bouton) bouton.textContent = "Ouvrir";
+  }
+
+  $("parcourir").onclick = async () => {
+    $("parcourir").disabled = true;
+    msg("Le sélecteur de dossier s'est ouvert (il peut être derrière cette fenêtre).", "info");
+    try {
+      const r = await post("/api/parcourir");
+      $("msg").className = "msg";
+      if (r.chemin) { $("chemin").value = r.chemin; await ouvrir(r.chemin); }
+      else if (r.erreur && r.erreur !== "annulé") msg(r.erreur);
+    } catch (e) { msg("L'application ne répond pas : est-elle toujours lancée ?"); }
+    $("parcourir").disabled = false;
+  };
+  // Arrêt : deux clics (le 2e confirme), pour éviter un arrêt par mégarde.
+  let confirmTimer = null;
+  $("arreter").onclick = async () => {
+    const b = $("arreter");
+    if (!b.classList.contains("confirm")) {
+      b.classList.add("confirm"); b.textContent = "Confirmer l'arrêt ?";
+      confirmTimer = setTimeout(() => { b.classList.remove("confirm"); b.textContent = "⏻ Arrêter l'application"; }, 4000);
+      return;
+    }
+    clearTimeout(confirmTimer);
+    try { await post("/api/arreter"); } catch (e) { /* déjà arrêtée */ }
+    document.querySelector("main").innerHTML = `<div class="arrete"><h1>Application arrêtée</h1><p>Tu peux fermer cet onglet. Pour reprendre, relance Greffier.</p></div>`;
+    b.remove();
+  };
+  $("ouvrirChemin").onclick = () => ouvrir($("chemin").value.trim(), $("ouvrirChemin"));
+  $("chemin").addEventListener("keydown", (e) => { if (e.key === "Enter") $("ouvrirChemin").click(); });
+
+  fetch("/api/ateliers").then((r) => r.json()).then((d) => {
+    if (d.systeme === "windows") $("chemin").placeholder = "…ou colle le chemin du dossier (ex. C:\\Missions\\Client\\atelier-01)";
+    else $("chemin").placeholder = "…ou colle le chemin du dossier (ex. ~/Missions/Client/atelier-01)";
+    const l = $("liste");
+    if (!d.ateliers.length) { l.innerHTML = `<div class="vide">Aucun atelier récent. Utilise « Parcourir… » pour choisir un dossier.</div>`; return; }
+    l.innerHTML = "";
+    d.ateliers.forEach((a) => {
+      const c = document.createElement("div");
+      c.className = "carte cartouche";
+      c.innerHTML = `<div><div class="t">${a.client ? `<b>${esc(a.client)}</b>` : ""}${esc(a.titre || a.nom)}</div>
+        <div class="m">${a.recent ? "Récent" : "Trouvé à côté de l'application"}${a.questions ? ` · ${a.questions} questions` : ""}</div>
+        <div class="p">${esc(a.chemin)}</div>${a.erreur ? `<div class="e">⚠ ${esc(a.erreur)}</div>` : ""}</div>`;
+      const b = document.createElement("button");
+      b.className = "btn"; b.textContent = "Ouvrir"; b.disabled = !!a.erreur;
+      b.onclick = () => ouvrir(a.chemin, b);
+      c.appendChild(b);
+      l.appendChild(c);
+    });
+  }).catch(() => msg("L'application ne répond pas : est-elle toujours lancée ?"));
+})();
+</script>
+</body>
+</html>

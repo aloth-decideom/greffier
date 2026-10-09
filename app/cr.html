@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mise en page du compte rendu</title>
+<link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="document.css">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { font-family: var(--font); color: var(--texte); background: #ececf0; display: grid; grid-template-columns: minmax(340px, 38%) 1fr; overflow: hidden; }
+  button, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+
+  /* ---------- Éditeur ---------- */
+  .editor { display: flex; flex-direction: column; background: var(--fond); border-right: 1px solid var(--ligne); min-width: 0; }
+  .editor header { padding: 14px 18px; border-bottom: 1px solid var(--ligne); }
+  .editor .logo { display: flex; align-items: center; gap: 10px; }
+  .editor .logo img { height: 30px; }
+  .editor .client { color: var(--rouge); font-family: var(--font-titre); font-weight: 600; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; }
+  .editor h1 { margin: 8px 0 0; font-family: var(--font-titre); font-size: 17px; color: var(--encre); font-weight: 500; }
+  .steps { margin: 10px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--gris); line-height: 1.6; }
+  .steps b { color: var(--texte); }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 18px; border-bottom: 1px solid var(--ligne); }
+  .bar button { border: 1px solid var(--ligne); background: var(--fond); border-radius: 8px; padding: 7px 10px; font-size: 12.5px; }
+  .bar button:hover { border-color: var(--rouge); color: var(--rouge); }
+  .bar .primary { font-family: var(--font-titre); background: var(--rouge); border-color: var(--rouge); color: #fff; font-weight: 600; }
+  .bar .primary:hover { background: var(--rouge-fonce); color: #fff; }
+  textarea#md { flex: 1; border: 0; resize: none; padding: 14px 18px; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; outline: none; background: var(--fond-2); }
+  .status { padding: 8px 18px; font-size: 12px; border-top: 1px solid var(--ligne); display: flex; gap: 14px; flex-wrap: wrap; }
+  .status .warn { color: var(--warn); font-weight: 600; }
+  .status .ok { color: var(--ok); }
+
+  /* ---------- Aperçu A4 ---------- */
+  .preview { overflow-y: auto; padding: 24px; }
+  .page { background: #fff; width: 210mm; min-height: 297mm; margin: 0 auto; padding: 18mm 16mm 20mm; box-shadow: 0 2px 14px rgba(0,0,0,.12); }
+  .empty { color: var(--gris); text-align: center; margin-top: 80mm; font-size: 15px; line-height: 1.7; }
+
+  @media print {
+    html, body { height: auto; overflow: visible; display: block; background: #fff; }
+    .editor { display: none !important; }
+    .preview { padding: 0; overflow: visible; }
+    .page { width: auto; min-height: 0; padding: 0; box-shadow: none; }
+  }
+  @media (max-width: 900px) {
+    body { grid-template-columns: 1fr; grid-template-rows: 50vh 50vh; }
+    .page { width: 100%; padding: 16px; }
+  }
+</style>
+</head>
+<body>
+<section class="editor">
+  <header>
+    <div class="logo"><img src="img/logo-decideom.png" alt="DecideOm"><span class="client" id="client"></span></div>
+    <h1>Mise en page du compte rendu</h1>
+    <ol class="steps">
+      <li><b>Copier pour l'IA</b>, puis coller dans Gemini (ou Claude, ChatGPT…).</li>
+      <li>Coller sa réponse ci-dessous (ou <b>Importer .md</b>) et relire.</li>
+      <li>Corriger les <b>[À CONFIRMER]</b>, puis <b>Imprimer / PDF</b>.</li>
+    </ol>
+  </header>
+  <div class="bar">
+    <button id="bCopy" title="Copie le prompt + les notes de l'atelier dans le presse-papiers">🤖 Copier pour l'IA</button>
+    <button id="bPromptFile" title="Même contenu, en fichier .md à joindre">⬇ Prompt + notes (.md)</button>
+    <button id="bImport">Importer .md</button>
+    <button id="bPhotos" title="Si les photos ne viennent pas de ce navigateur : choisir les fichiers du dossier photos/ de l'export">Charger des photos</button>
+    <button id="bSave" title="Télécharger le compte rendu en Markdown">⬇ CR .md</button>
+    <button class="primary" id="bPrint">🖨 Imprimer / PDF</button>
+  </div>
+  <textarea id="md" spellcheck="true" placeholder="Colle ici le compte rendu en Markdown produit par l'IA…"></textarea>
+  <div class="status" id="status"></div>
+</section>
+<section class="preview"><div class="page"><div class="doc" id="doc"></div></div></section>
+
+<script src="questions.js"></script>
+<script src="notes-core.js"></script>
+<script src="marked.min.js"></script>
+<script>
+(function () {
+  "use strict";
+  const NC = NotesCore;
+  const DATA = globalThis.ATELIER;
+  const KEY = DATA.storageKey;
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const store = NC.createStore(KEY);
+  const photos = NC.createPhotoStore(KEY);
+  const loaded = new Map();       // photos chargées à la main : nom de fichier → URL
+  const urls = new Map();         // cache des photos de la session
+  const CR_KEY = KEY + "-cr";
+
+  $("client").textContent = `× ${DATA.meta.client || ""}`;
+  try { $("md").value = localStorage.getItem(CR_KEY) || ""; } catch (e) { /* stockage indisponible */ }
+
+  // ---------- Prompt + notes pour l'IA ----------
+  const promptAndNotes = () => `${DATA.promptCR}\n\n---\n\n# NOTES BRUTES\n\n${NC.exportMarkdown(DATA, store.state, { photoDir: "photos" })}`;
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; } catch (e) {
+      const t = document.createElement("textarea");
+      t.value = text; document.body.appendChild(t); t.select();
+      const ok = document.execCommand("copy"); t.remove(); return ok;
+    }
+  }
+  $("bCopy").onclick = async () => {
+    const ok = await copyText(promptAndNotes());
+    status(ok ? "✓ Prompt + notes copiés : colle-les dans Gemini." : "Copie impossible : utilise « Prompt + notes (.md) ».");
+  };
+  $("bPromptFile").onclick = () => NC.download(`${DATA.slug}_prompt-cr.md`, promptAndNotes(), "text/markdown;charset=utf-8");
+
+  // ---------- Rendu ----------
+  // Nettoie la réponse de l'IA : on garde le contenu du bloc ```markdown s'il y en a un
+  // (et on jette les phrases avant / après), puis le texte qui précède le premier titre.
+  function clean(md) {
+    let s = md.trim().replace(/\r\n/g, "\n");
+    const fence = s.match(/(^|\n)```(?:markdown|md)?[ \t]*\n([\s\S]*\n)```[ \t]*(\n|$)/);
+    if (fence && /^# /m.test(fence[2])) s = fence[2].trim();
+    const h1 = s.search(/^# /m);
+    if (h1 > 0 && h1 < 400) s = s.slice(h1);
+    return s;
+  }
+  // Retire scripts, iframes et attributs d'événement : le Markdown vient d'une IA, on ne lui fait pas confiance.
+  function sanitize(html) {
+    const doc = new DOMParser().parseFromString(`<div>${html}</div>`, "text/html");
+    doc.querySelectorAll("script,iframe,object,embed,style,link,meta,form").forEach((n) => n.remove());
+    doc.querySelectorAll("*").forEach((el) => [...el.attributes].forEach((a) => {
+      if (/^on/i.test(a.name) || /^\s*javascript:/i.test(a.value)) el.removeAttribute(a.name);
+    }));
+    return doc.body.firstChild.innerHTML;
+  }
+  async function photoSrc(src) {
+    const file = decodeURIComponent(src.split("/").pop());
+    if (loaded.has(file)) return loaded.get(file);
+    if (urls.has(file)) return urls.get(file);
+    let blob = await photos.get(file.replace(/\.[a-z]+$/i, ""));
+    if (!blob && /^https?:$/.test(location.protocol)) {      // page servie par Greffier : photo lue sur le disque
+      const r = await fetch("api/photo/" + encodeURIComponent(file)).catch(() => null);
+      if (r && r.ok) blob = await r.blob();
+    }
+    const url = blob ? URL.createObjectURL(blob) : null;
+    urls.set(file, url);
+    return url;
+  }
+
+  let renderSeq = 0;
+  async function render() {
+    const seq = ++renderSeq;
+    const md = clean($("md").value);
+    try { localStorage.setItem(CR_KEY, $("md").value); } catch (e) { /* stockage indisponible */ }
+    const doc = $("doc");
+    if (!md) {
+      doc.innerHTML = `<div class="empty">L'aperçu du compte rendu s'affichera ici.<br>1. « Copier pour l'IA » → Gemini<br>2. Coller la réponse à gauche</div>`;
+      status("");
+      return;
+    }
+    const today = new Date().toLocaleDateString("fr-FR");
+    let html = sanitize(marked.parse(md, { gfm: true, breaks: false }));
+    html = html.replace(/\[À CONFIRMER\]/g, '<mark class="tbc">[À CONFIRMER]</mark>');
+    const tmp = document.createElement("div");
+    tmp.innerHTML = `<div class="doc-brand"><img src="img/logo-decideom.png" alt="DecideOm"><div class="who"><b>${esc(DATA.meta.client || "")}</b>${esc(DATA.meta.mission || "")}<br>${today}</div></div>` + html;
+
+    // Image seule dans un paragraphe → figure avec légende
+    tmp.querySelectorAll("p > img:only-child").forEach((img) => {
+      const fig = document.createElement("figure");
+      img.parentNode.replaceWith(fig);
+      fig.appendChild(img);
+      if (img.alt) { const cap = document.createElement("figcaption"); cap.textContent = img.alt; fig.appendChild(cap); }
+    });
+    // Photos : on les cherche dans la session de l'atelier (même navigateur) ou parmi les fichiers chargés
+    const missing = [];
+    for (const img of tmp.querySelectorAll("img")) {
+      const src = img.getAttribute("src") || "";
+      if (/^(data:|blob:|https?:|img\/)/.test(src)) continue;
+      const url = await photoSrc(src);
+      if (url) img.src = url;
+      else {
+        missing.push(src);
+        const box = document.createElement("div");
+        box.className = "missing-img";
+        box.textContent = `Photo introuvable : ${src} (bouton « Charger des photos »)`;
+        img.replaceWith(box);
+      }
+    }
+    if (seq !== renderSeq) return;
+    doc.innerHTML = "";
+    doc.append(...tmp.childNodes);
+
+    const tbc = (md.match(/\[À CONFIRMER\]/g) || []).length;
+    status([
+      tbc ? `<span class="warn">⚠ ${tbc} [À CONFIRMER] à traiter</span>` : `<span class="ok">✓ Aucun [À CONFIRMER]</span>`,
+      missing.length ? `<span class="warn">⚠ ${missing.length} photo(s) introuvable(s)</span>` : "",
+      `${md.split(/\s+/).length} mots`,
+    ].filter(Boolean).join(""), true);
+  }
+  function status(msg, isHtml) { const s = $("status"); if (isHtml) s.innerHTML = msg; else s.textContent = msg; }
+  let t;
+  $("md").addEventListener("input", () => { clearTimeout(t); t = setTimeout(render, 300); });
+
+  // ---------- Fichiers ----------
+  $("bImport").onclick = async () => {
+    const [f] = await NC.pickFile(".md,.markdown,.txt,text/markdown,text/plain");
+    if (f) { $("md").value = await f.text(); render(); }
+  };
+  $("bPhotos").onclick = async () => {
+    const files = await NC.pickFile("image/*", true);
+    files.forEach((f) => loaded.set(f.name, URL.createObjectURL(f)));
+    if (files.length) render();
+  };
+  $("bSave").onclick = () => NC.download(`CR-${DATA.slug}.md`, clean($("md").value), "text/markdown;charset=utf-8");
+  $("bPrint").onclick = () => {
+    const tbc = (clean($("md").value).match(/\[À CONFIRMER\]/g) || []).length;
+    if (tbc && !confirm(`Il reste ${tbc} mention(s) [À CONFIRMER]. Imprimer quand même ?`)) return;
+    const title = document.title;
+    document.title = `CR-${DATA.slug}`;
+    window.print();
+    document.title = title;
+  };
+
+  render();
+})();
+</script>
+</body>
+</html>

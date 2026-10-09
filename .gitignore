@@ -1,0 +1,15 @@
+# Binaires compilés (publiés par la GitHub Action « Binaires greffier »)
+dist/
+
+# Dépendances (réinstallables : cd marp && npm install)
+node_modules/
+
+# Fichiers générés et notes dans l'atelier d'exemple
+exemple/*/outil/
+exemple/*/marp/
+exemple/*/prompt-cr.md
+exemple/*/sorties/
+
+.DS_Store
+Thumbs.db
+__pycache__/
