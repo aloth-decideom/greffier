@@ -108,6 +108,12 @@
         delete state.answers[id];
         persist();
       },
+      // Repère d'enregistrement : la question ou page id est affichée à t secondes du début du segment seg.
+      addRepere(r) {
+        const audio = Object.assign({ reperes: [] }, state.audio);
+        state.audio = { ...audio, reperes: [...audio.reperes, r] };
+        persist();
+      },
       reset() { state = emptyState(); persist(); },
       load(obj) { state = Object.assign(emptyState(), obj); persist(); },
       onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
@@ -506,6 +512,111 @@
     };
   }
 
+  // ---------------------------------------------------------------- Enregistrement du son
+  // Page servie par Greffier seulement. Micro → PCM 16 bits mono rééchantillonné à 16 kHz
+  // (AudioWorklet), envoyé toutes les 5 s à api/audio/<segment> : un plantage ne perd que
+  // les dernières secondes. Chaque reprise après une pause ouvre un nouveau segment.
+  // opts : { onStatus: (status) => void, onSegment: (seg) => void }
+  const WORKLET = `class P extends AudioWorkletProcessor {
+    constructor() { super(); this.r = sampleRate / 16000; this.pos = 0; this.acc = 0; this.cnt = 0; this.b = new Int16Array(4000); this.n = 0; }
+    process(inputs) {
+      const c = inputs[0] && inputs[0][0];
+      if (c) for (let i = 0; i < c.length; i++) {
+        this.acc += c[i]; this.cnt++;
+        if (++this.pos < this.r) continue;
+        this.pos -= this.r;
+        const s = Math.max(-1, Math.min(1, this.acc / this.cnt));
+        this.acc = 0; this.cnt = 0;
+        this.b[this.n++] = s < 0 ? s * 32768 : s * 32767;
+        if (this.n === this.b.length) { this.port.postMessage(this.b.buffer, [this.b.buffer]); this.b = new Int16Array(4000); this.n = 0; }
+      }
+      return true;
+    }
+  }
+  registerProcessor("greffier-pcm16", P);`;
+
+  function createRecorder(opts) {
+    const supported = typeof location !== "undefined" && /^https?:$/.test(location.protocol) &&
+      !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && typeof AudioWorkletNode !== "undefined";
+    const status = { actif: false, seg: null, enAttente: 0, erreur: null };
+    let ctx = null, stream = null, chunks = [], queue = [], timer = null, sending = null, wake = null, samples = 0;
+    const notify = () => opts.onStatus && opts.onStatus({ ...status });
+    const segName = () => {
+      const d = new Date();
+      return `seg-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
+    };
+    // Morceaux reçus du worklet → un envoi en file d'attente
+    function cut() {
+      if (!chunks.length) return;
+      const all = new Int16Array(chunks.reduce((n, c) => n + c.length, 0));
+      let o = 0;
+      chunks.forEach((c) => { all.set(c, o); o += c.length; });
+      chunks = [];
+      queue.push({ seg: status.seg, data: all.buffer });
+    }
+    function send() {
+      if (sending) return sending;
+      sending = (async () => {
+        while (queue.length) {
+          const { seg, data } = queue[0];
+          const r = await fetch("api/audio/" + seg, { method: "PUT", body: data, headers: { "Content-Type": "application/octet-stream" } }).catch(() => null);
+          if (!r || !r.ok) { status.erreur = "audio non enregistré sur le disque (nouvel essai dans 5 s)"; break; }
+          queue.shift();
+          status.erreur = null;
+        }
+        status.enAttente = queue.reduce((n, q) => n + q.data.byteLength, 0) / 32000;
+        notify();
+      })().finally(() => { sending = null; });
+      return sending;
+    }
+    const finish = (seg) => fetch(`api/audio/${seg}/fin`, { method: "POST" }).catch(() => {});
+
+    return {
+      supported,
+      get status() { return { ...status }; },
+      // Secondes enregistrées dans le segment en cours (position des repères)
+      position() { return samples / 16000; },
+      async start() {
+        if (status.actif) return;
+        clearInterval(timer);   // envois en retard d'un segment précédent : repris par le nouveau minuteur
+        stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
+        try {
+          ctx = new AudioContext();
+          const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
+          await ctx.audioWorklet.addModule(url);
+          URL.revokeObjectURL(url);
+          const node = new AudioWorkletNode(ctx, "greffier-pcm16");
+          node.port.onmessage = (e) => { const c = new Int16Array(e.data); chunks.push(c); samples += c.length; };
+          ctx.createMediaStreamSource(stream).connect(node);
+          node.connect(ctx.destination);   // sortie silencieuse : garde le nœud actif
+        } catch (e) {
+          stream.getTracks().forEach((t) => t.stop());
+          if (ctx) ctx.close().catch(() => {});
+          throw e;
+        }
+        status.seg = segName(); status.actif = true; status.erreur = null; samples = 0;
+        timer = setInterval(() => { cut(); send(); }, 5000);
+        try { wake = await navigator.wakeLock.request("screen"); } catch (e) { /* pas de verrou d'écran : tant pis */ }
+        notify();
+        if (opts.onSegment) opts.onSegment(status.seg);
+      },
+      async stop() {
+        if (!status.actif) return;
+        clearInterval(timer);
+        stream.getTracks().forEach((t) => t.stop());
+        await ctx.close().catch(() => {});
+        cut();
+        status.actif = false;
+        if (wake) { wake.release().catch(() => {}); wake = null; }
+        const seg = status.seg;
+        await send();
+        if (!queue.length) await finish(seg);
+        else timer = setInterval(async () => { await send(); if (!queue.length) { clearInterval(timer); finish(seg); } }, 5000);
+        notify();
+      },
+    };
+  }
+
   // ---------------------------------------------------------------- Fichiers
   function download(filename, content, type) {
     const blob = content instanceof Blob ? content : new Blob([content], { type: type || "text/plain;charset=utf-8" });
@@ -531,7 +642,7 @@
   const stamp = () => { const d = new Date(); return `${today()}_${pad(d.getHours())}h${pad(d.getMinutes())}`; };
 
   globalThis.NotesCore = {
-    TAGS, flatten, allParts, isLibre, createStore, createPhotoStore, createDiskSaver, resizeImage, blobToDataURL, dataURLToBlob,
+    TAGS, flatten, allParts, isLibre, createStore, createPhotoStore, createDiskSaver, createRecorder, resizeImage, blobToDataURL, dataURLToBlob,
     makeZip, exportMarkdown, download, pickFile, isAnswered, stamp, EMPTY_ANSWER,
   };
 })();

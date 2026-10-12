@@ -16,11 +16,13 @@ Après la ligne « NOTES BRUTES », l'export de l'outil de prise de notes :
 - des liens vers des photos (schémas au tableau…) sous la forme `![légende](photos/fichier.jpg)` ;
 - enfin, s'il y en a, la liste des questions non traitées.
 
+Parfois, après la ligne « TRANSCRIPTION », la transcription automatique de l'enregistrement de la séance : découpée par question ou par page (mêmes identifiants que les notes), horodatée, **non relue** (mots mal reconnus, noms propres déformés) et **sans identification des intervenants**.
+
 ## Ce que tu dois produire
 Le compte rendu complet, en **Markdown**, en suivant **exactement** la structure du modèle ci-dessous (titres, ordre des sections, colonnes des tableaux).
 
 ## Règles de rédaction (impératives)
-1. **N'invente rien.** Chaque affirmation doit venir des notes. Pas de chiffre, de nom, d'outil ni de décision absents des notes.
+1. **N'invente rien.** Chaque affirmation doit venir des notes (ou de la transcription, voir règle 15). Pas de chiffre, de nom, d'outil ni de décision absents des notes et de la transcription.
 2. **Signale les doutes.** Note ambiguë, abréviation incertaine, contradiction entre deux réponses : écris l'interprétation la plus probable suivie de **[À CONFIRMER]**. Ne supprime jamais une information parce qu'elle est floue.
 3. **Reformule** les notes télégraphiques en phrases courtes, factuelles et professionnelles, au présent. Corrige l'orthographe. Un fait par puce.
 4. **Conserve** tels quels les chiffres, noms d'outils, versions, volumes, délais et noms de personnes ou de fonctions. Les citations notées entre guillemets restent des citations, attribuées à leur auteur s'il est connu.
@@ -34,6 +36,7 @@ Le compte rendu complet, en **Markdown**, en suivant **exactement** la structure
 12. **Questions non traitées** (s'il y en a) : ne les mets pas dans le corps ; reprends les prioritaires (★) dans « Points ouverts » ou « Prochaines étapes ».
 13. **Synthèse en 5 points** : les 5 enseignements majeurs, une phrase chacun, compréhensibles par un membre du CODIR qui n'était pas là.
 14. **Ton** : neutre et factuel, sans jugement sur les personnes, sans formule commerciale. Le document peut être lu par le client.
+15. **Transcription** (s'il y en a une) : les notes priment, la transcription sert à compléter et à préciser (chiffres, exemples, arguments, sujets abordés mais peu notés). Ne reprends une citation que si elle est nette et sans ambiguïté, sans l'attribuer à une personne nommée (les voix ne sont pas identifiées) sauf si les notes le font. Un nom propre, un chiffre ou un terme douteux de la transcription est suivi de **[À CONFIRMER]**, de même qu'une contradiction entre notes et transcription. Ne décris jamais la transcription elle-même (« d'après l'enregistrement… »).
 
 ## Format de sortie
 - Uniquement le Markdown du compte rendu, **sans** texte avant ou après, **sans** l'entourer d'un bloc de code (pas de ```).

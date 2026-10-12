@@ -64,7 +64,8 @@ contexte: Quelques phrases de contexte, reprises dans le prompt du compte rendu.
 ```
 mon-atelier/
   questions.md    la source (à toi)
-  sorties/        session.json, notes.md, photos/, historique/ (copie toutes les 10 min)
+  sorties/        session.json, notes.md, photos/, historique/ (copie toutes les 10 min),
+                  audio/ et transcription.md si l'atelier est enregistré
   outil/          page autonome (secours : double-clic dans Chrome / Edge), outil/cr.html
   prompt-cr.md    prompt du compte rendu (contexte + modèle)
   marp/           slides.md (+ slides.html si marp-cli est installé), notes-atelier.md (pas pour les notes libres)
@@ -79,12 +80,39 @@ mon-atelier/
 | Historique | `sorties/historique/` : toutes les 10 min, avant « Nouvelle session », avant une restauration |
 | Restauration | Navigateur vidé ? La page propose de recharger la session depuis le disque, photos comprises |
 | Photos supprimées | Déplacées dans `sorties/photos/supprimees/`, jamais effacées |
+| Enregistrement audio | Écrit sur le disque toutes les 5 s : un plantage ne perd que les dernières secondes |
+
+## Enregistrer et transcrire
+Dans la page d'atelier (ou de notes libres), **🎙 Enregistrer** capte le micro du poste. La première fois, Greffier demande de confirmer que **les participants sont informés et d'accord**. Pendant l'enregistrement, le bouton devient rouge et affiche la durée ; un clic met en pause, un autre reprend. Chaque question ou page affichée pendant l'enregistrement sert de repère : la transcription est découpée par question (ou par page en notes libres).
+
+Le son est écrit au fil de l'eau dans `sorties/audio/` (WAV 16 kHz mono, ~115 Mo par heure), puis transcrit **sur le poste**, sans rien envoyer sur internet : page **📝 Compte rendu** → **🎙 Transcrire**. Le résultat, `sorties/transcription.md`, est joint automatiquement au prompt du compte rendu, où l'IA s'en sert pour compléter les notes (les notes priment). Une fois la transcription faite, **Supprimer l'audio** le déplace dans `sorties/audio/supprimes/`.
+
+La transcription utilise [whisper.cpp](https://github.com/ggml-org/whisper.cpp), à installer une fois :
+- **macOS** : `brew install whisper-cpp` ;
+- **Windows** : télécharger le zip de la [dernière version](https://github.com/ggml-org/whisper.cpp/releases) et placer son contenu dans un dossier `whisper` à côté de Greffier ;
+- **Linux** (paquets `git`, `cmake`, `g++`) :
+  ```sh
+  git clone --depth 1 https://github.com/ggml-org/whisper.cpp && cd whisper.cpp
+  cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
+  cmake --build build -j --target whisper-cli
+  install -D build/bin/whisper-cli ~/.local/bin/whisper-cli
+  ```
+
+Au premier usage, Greffier télécharge le modèle de transcription et celui de détection de la voix dans le cache de l'utilisateur, une seule fois (sommes de contrôle vérifiées). Les silences sont sautés, ce qui accélère la transcription et évite que Whisper invente du texte dans les blancs ; l'audio est aussi découpé à chaque changement de question, pour que chaque passage soit rangé sous la bonne question. Durées indicatives, pour 1 h d'audio :
+| Poste | Modèle par défaut | Durée |
+|---|---|---|
+| Mac Apple Silicon (GPU) | `large` (large-v3-turbo, 550 Mo) | quelques minutes |
+| PC (processeur seul) | `small` (190 Mo) | de l'ordre de 30 min, moins s'il y a des silences |
+
+Variables d'environnement : `GREFFIER_WHISPER` (chemin de `whisper-cli`), `GREFFIER_MODELE_WHISPER` (`small`, `large`, ou le chemin d'un modèle ggml). Limites : les intervenants ne sont pas identifiés, et un micro de salle donne de bien meilleurs résultats que celui d'un portable en bout de table. Enregistrer demande Chrome ou Edge, avec la page ouverte par Greffier (pas en double-clic).
 
 ## Le compte rendu par IA
 Un prompt commun ([`prompt-compte-rendu.md`](prompt-compte-rendu.md)) et un modèle ([`modele-compte-rendu.md`](modele-compte-rendu.md), ou [`modele-compte-rendu-libre.md`](modele-compte-rendu-libre.md) pour des notes libres) imposent la structure du CR, interdisent d'inventer et font marquer **[À CONFIRMER]** ce qui est ambigu.
 
-1. Page d'atelier → **📝 Compte rendu (IA → PDF)** → **🤖 Copier pour l'IA** → coller dans Gemini, ChatGPT ou Claude.
-2. Coller la réponse dans la page : aperçu A4 avec les photos, [À CONFIRMER] surlignés et comptés.
+1. Page d'atelier → **📝 Compte rendu (IA → PDF)** :
+   - **✨ Rédiger avec Claude** (si [Claude Code](https://claude.com/claude-code) est installé et connecté) : Greffier lance `claude -p` avec l'abonnement Claude, sans clé API. Claude ne peut que lire les fichiers de `sorties/` (pour décrire les photos) ; le CR s'affiche dans la page et est enregistré dans `sorties/CR-<atelier>.md`. Compter 1 à 3 minutes. Claude Code introuvable alors qu'il est installé : indiquer son chemin dans la variable `GREFFIER_CLAUDE`.
+   - sinon **🤖 Copier pour l'IA** → coller dans Gemini, ChatGPT ou Claude, puis coller la réponse dans la page.
+2. Aperçu A4 avec les photos, [À CONFIRMER] surlignés et comptés.
 3. Corriger, puis **🖨 Imprimer / PDF**.
 
 Avec **Claude Code**, la commande [`/compte-rendu`](.claude/commands/compte-rendu.md) fait tout, jusqu'au PDF ([`cr2pdf.py`](cr2pdf.py), qui nécessite pandoc).

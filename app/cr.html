@@ -28,6 +28,12 @@
   .bar .primary { font-family: var(--font-titre); background: var(--rouge); border-color: var(--rouge); color: #fff; font-weight: 600; }
   .bar .primary:hover { background: var(--rouge-fonce); color: #fff; }
   textarea#md { flex: 1; border: 0; resize: none; padding: 14px 18px; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; outline: none; background: var(--fond-2); }
+  .audio { padding: 10px 18px; border-bottom: 1px solid var(--ligne); font-size: 12.5px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  .audio button { border: 1px solid var(--ligne); background: var(--fond); border-radius: 8px; padding: 5px 9px; font-size: 12.5px; }
+  .audio button:hover { border-color: var(--rouge); color: var(--rouge); }
+  .audio .warn { color: var(--warn); }
+  .audio .ok { color: var(--ok); }
+  .audio progress { flex: 1 1 120px; accent-color: var(--rouge); }
   .status { padding: 8px 18px; font-size: 12px; border-top: 1px solid var(--ligne); display: flex; gap: 14px; flex-wrap: wrap; }
   .status .warn { color: var(--warn); font-weight: 600; }
   .status .ok { color: var(--ok); }
@@ -55,12 +61,13 @@
     <div class="logo"><img src="img/logo-decideom.png" alt="DecideOm"><span class="client" id="client"></span></div>
     <h1>Mise en page du compte rendu</h1>
     <ol class="steps">
-      <li><b>Copier pour l'IA</b>, puis coller dans Gemini (ou Claude, ChatGPT…).</li>
+      <li><b>Rédiger avec Claude</b> (Claude Code installé), ou <b>Copier pour l'IA</b> puis coller dans Gemini (ou Claude, ChatGPT…).</li>
       <li>Coller sa réponse ci-dessous (ou <b>Importer .md</b>) et relire.</li>
       <li>Corriger les <b>[À CONFIRMER]</b>, puis <b>Imprimer / PDF</b>.</li>
     </ol>
   </header>
   <div class="bar">
+    <button class="primary" id="bClaude" hidden title="Claude Code rédige le compte rendu (abonnement Claude, sans clé API) ; enregistré aussi dans sorties/">✨ Rédiger avec Claude</button>
     <button id="bCopy" title="Copie le prompt + les notes de l'atelier dans le presse-papiers">🤖 Copier pour l'IA</button>
     <button id="bPromptFile" title="Même contenu, en fichier .md à joindre">⬇ Prompt + notes (.md)</button>
     <button id="bImport">Importer .md</button>
@@ -68,6 +75,7 @@
     <button id="bSave" title="Télécharger le compte rendu en Markdown">⬇ CR .md</button>
     <button class="primary" id="bPrint">🖨 Imprimer / PDF</button>
   </div>
+ <div class="audio" id="audio" hidden></div>
   <textarea id="md" spellcheck="true" placeholder="Colle ici le compte rendu en Markdown produit par l'IA…"></textarea>
   <div class="status" id="status"></div>
 </section>
@@ -94,7 +102,9 @@
   try { $("md").value = localStorage.getItem(CR_KEY) || ""; } catch (e) { /* stockage indisponible */ }
 
   // ---------- Prompt + notes pour l'IA ----------
-  const promptAndNotes = () => `${DATA.promptCR}\n\n---\n\n# NOTES BRUTES\n\n${NC.exportMarkdown(DATA, store.state, { photoDir: "photos" })}`;
+  let transcription = "";   // sorties/transcription.md, s'il y en a une
+  const promptAndNotes = () => `${DATA.promptCR}\n\n---\n\n# NOTES BRUTES\n\n${NC.exportMarkdown(DATA, store.state, { photoDir: "photos" })}` +
+    (transcription ? `\n\n---\n\n# TRANSCRIPTION\n\n${transcription}` : "");
   async function copyText(text) {
     try { await navigator.clipboard.writeText(text); return true; } catch (e) {
       const t = document.createElement("textarea");
@@ -105,6 +115,76 @@
   $("bCopy").onclick = async () => {
     const ok = await copyText(promptAndNotes());
     status(ok ? "✓ Prompt + notes copiés : colle-les dans Gemini." : "Copie impossible : utilise « Prompt + notes (.md) ».");
+  };
+  // ---------- Enregistrement et transcription locale (page servie par Greffier seulement) ----------
+  const duree = (s) => { if (s < 60) return `${Math.round(s)} s`; const m = Math.round(s / 60); return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${String(m % 60).padStart(2, "0")}`; };
+  let suivi = null;
+  async function majAudio() {
+    let r;
+    try { r = await (await fetch("api/audio")).json(); } catch (e) { return; }
+    const el = $("audio"), e = r.etat || {};
+    el.hidden = !r.segments.length && !r.transcription;
+    if (r.transcription && !transcription && !e.enCours) {
+      transcription = await fetch("api/transcription.md").then((x) => (x.ok ? x.text() : "")).catch(() => "");
+    }
+    const aFaire = r.segments.filter((s) => !s.transcrit && !s.enCours).length;
+    const enCours = r.segments.some((s) => s.enCours);
+    let h = `<span>🎙 <b>${duree(r.secondes)}</b> enregistrée${r.segments.length > 1 ? `s (${r.segments.length} parties)` : ""}</span>`;
+    if (e.enCours) h += `<span>${esc(e.etape)}… ${e.pourcent} %</span><progress max="100" value="${e.pourcent}"></progress>`;
+    else {
+      if (e.erreur) h += `<span class="warn">⚠ ${esc(e.erreur)}</span>`;
+      if (enCours) h += `<span class="warn">Enregistrement en cours</span>`;
+      if (aFaire && r.whisper) h += `<button id="bTranscrire" title="Transcription sur ce poste avec whisper.cpp : rien n'est envoyé sur internet">🎙 Transcrire${r.transcription ? " la suite" : ""}</button>`;
+      if (aFaire && !r.whisper) h += `<span class="warn">Transcription impossible : whisper.cpp n'est pas installé (voir le README de Greffier)</span>`;
+      if (r.transcription) h += `<span class="ok">✓ Transcription jointe au prompt (sorties/transcription.md)</span>`;
+      if (r.transcription && r.segments.length && !aFaire && !enCours) h += `<button id="bSupprAudio" title="Déplace l'audio dans sorties/audio/supprimes/ ; la transcription reste">Supprimer l'audio</button>`;
+    }
+    el.innerHTML = h;
+    if ($("bTranscrire")) $("bTranscrire").onclick = transcrire;
+    if ($("bSupprAudio")) $("bSupprAudio").onclick = supprimerAudio;
+    clearTimeout(suivi);
+    if (e.enCours) suivi = setTimeout(majAudio, 2000);
+    else if (suivi !== null && e.etape) { suivi = null; status("✓ Transcription terminée : elle est jointe au prompt."); }
+  }
+  async function transcrire() {
+    const r = await (await fetch("api/transcrire", { method: "POST" })).json().catch(() => ({ erreur: "Greffier injoignable" }));
+    if (r.erreur) { status("⚠ " + r.erreur); return; }
+    transcription = "";   // relue à la fin
+    suivi = 0;
+    majAudio();
+  }
+  async function supprimerAudio() {
+    if (!confirm("Déplacer l'enregistrement audio dans sorties/audio/supprimes/ ? La transcription est conservée.")) return;
+    const r = await (await fetch("api/audio", { method: "DELETE" })).json().catch(() => ({ erreur: "Greffier injoignable" }));
+    status(r.erreur ? "⚠ " + r.erreur : "✓ Audio déplacé dans sorties/audio/supprimes/");
+    majAudio();
+  }
+  if (/^https?:$/.test(location.protocol)) majAudio();
+
+  // ---------- Rédaction par Claude Code (page servie par Greffier seulement) ----------
+  if (/^https?:$/.test(location.protocol)) {
+    fetch("api/claude").then((r) => r.json()).then((r) => { $("bClaude").hidden = !r.disponible; }).catch(() => {});
+  }
+  $("bClaude").onclick = async () => {
+    if ($("md").value.trim() && !confirm("Remplacer le compte rendu actuel par une nouvelle rédaction de Claude ?")) return;
+    const b = $("bClaude"), debut = Date.now();
+    b.disabled = true;
+    const tic = () => status(`✨ Claude rédige le compte rendu… ${Math.round((Date.now() - debut) / 1000)} s (en général 1 à 3 min)`);
+    tic();
+    const minuteur = setInterval(tic, 1000);
+    try {
+      const r = await fetch("api/cr-claude", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ texte: promptAndNotes() }) });
+      const res = await r.json();
+      if (res.erreur) throw new Error(res.erreur);
+      $("md").value = res.markdown;
+      await render();
+      status(`✓ Rédigé par Claude, enregistré dans ${esc(res.fichier)}. ` + $("status").innerHTML, true);
+    } catch (e) {
+      status("⚠ " + (e.message || "Rédaction impossible"));
+    } finally {
+      clearInterval(minuteur);
+      b.disabled = false;
+    }
   };
   $("bPromptFile").onclick = () => NC.download(`${DATA.slug}_prompt-cr.md`, promptAndNotes(), "text/markdown;charset=utf-8");
 

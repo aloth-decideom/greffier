@@ -136,6 +136,12 @@
   .disk.wait { color: var(--gris); }
   .disk.warn { color: var(--warn); border-color: #f0cf9c; background: #fff7ea; }
   .disk.err { color: #fff; background: var(--rouge-fonce); border-color: var(--rouge-fonce); }
+  .rec { border: 1px solid var(--ligne); background: var(--fond); border-radius: 999px; padding: 4px 11px; font-size: 12.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .rec.on { color: #fff; background: var(--rouge); border-color: var(--rouge); font-weight: 600; }
+  .rec.on::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: #fff; animation: rec 1.2s ease-in-out infinite; }
+  .rec.warn { color: var(--warn); border-color: #f0cf9c; background: #fff7ea; }
+  .rec.on.warn { color: #fff; background: var(--rouge-fonce); }
+  @keyframes rec { 50% { opacity: .2; } }
   .disk-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 9px 28px; background: #fff7ea; border-bottom: 1px solid #f0cf9c; color: #6b4e00; font-size: 13.5px; }
   .disk-banner.err { background: var(--rouge-clair); border-color: var(--filet); color: var(--rouge-fonce); }
   .disk-banner b { font-weight: 600; }
@@ -241,6 +247,7 @@
     <button class="icon-btn" id="btnSide" title="Afficher / masquer le sommaire (M)">☰</button>
     <div class="crumb" id="crumb"></div>
     <button class="disk wait" id="diskBadge" title="Sauvegarde sur disque">💾 …</button>
+    <button class="rec" id="btnRec" hidden title="Enregistrer le son de l'atelier, pour une transcription locale (sorties/audio/)">🎙 Enregistrer</button>
     <span class="proj-badge" id="projBadge" hidden>📽 projection</span>
     <div class="chrono" id="chrono" title="Chronomètre de la partie en cours / temps prévu jusqu'à la fin de la section"></div>
     <span class="pos" id="pos"></span>
@@ -585,6 +592,7 @@
 
   // ---------- Rendu ----------
   function render() {
+    markAudio();
     const q = QS[idx];
     const s = q.section;
     if (q.libre) {
@@ -1050,10 +1058,10 @@
     } catch (err) { if (err && err.name !== "AbortError") toast("Dossier non accessible : " + err.message); }
   });
   $("diskBadge").onclick = () => { bannerLater = false; renderBanner(); if (saver.active()) toast(diskStatus.mode === "serveur" ? `Sauvegarde continue dans ${diskStatus.label}` : `Sauvegarde continue dans le dossier « ${diskStatus.label} »`); };
-  setInterval(() => renderDisk(), 1000);
+  setInterval(() => { renderDisk(); renderRec(); }, 1000);
   // Fermeture ou changement d'onglet : on écrit tout de suite ce qui est en attente.
   document.addEventListener("visibilitychange", () => { if (document.hidden) saver.flush(); });
-  window.addEventListener("beforeunload", (e) => { if (saver.status.pending) { saver.flush(); e.preventDefault(); e.returnValue = ""; } });
+  window.addEventListener("beforeunload", (e) => { if (saver.status.pending || recorder.status.actif) { saver.flush(); e.preventDefault(); e.returnValue = ""; } });
 
   if (/^https?:$/.test(location.protocol)) {
     fetch("/api/version").then((r) => r.json()).then((v) => {
@@ -1063,6 +1071,46 @@
       a.textContent = `⬆ Greffier ${v.derniere} est disponible (tu as ${v.version})`;
     }).catch(() => { /* hors ligne ou ancienne version : rien à signaler */ });
   }
+
+  // ---------- Enregistrement du son ----------
+  // Repères : chaque question ou page affichée pendant l'enregistrement est notée avec sa position
+  // dans le segment, pour découper la transcription par question (transcription.go).
+  let recAvant = 0, recConsenti = false, dernierRepere = null;
+  const recorder = NC.createRecorder({ onStatus: renderRec, onSegment: () => { dernierRepere = null; markAudio(); } });
+  function markAudio() {
+    if (!recorder.status.actif) return;
+    const id = QS[idx] && QS[idx].id;
+    if (!id || id === dernierRepere) return;
+    dernierRepere = id;
+    store.addRepere({ seg: recorder.status.seg, t: Math.round(recorder.position() * 10) / 10, id });
+  }
+  function renderRec() {
+    const b = $("btnRec"), st = recorder.status;
+    if (b.hidden) return;
+    const total = recAvant + (st.actif ? recorder.position() : 0);
+    b.classList.toggle("on", st.actif);
+    b.classList.toggle("warn", !!st.erreur);
+    b.textContent = st.actif ? fmt(total * 1000) : total ? `🎙 Reprendre (${fmt(total * 1000)})` : "🎙 Enregistrer";
+    b.title = st.erreur ? "⚠ " + st.erreur : st.actif ? "Enregistrement en cours : cliquer pour mettre en pause" : "Enregistrer le son de l'atelier, pour une transcription locale (sorties/audio/)";
+  }
+  const majDureeEnregistree = () => fetch("api/audio").then((r) => r.json()).then((r) => { recAvant = r.secondes || 0; renderRec(); }).catch(() => {});
+  if (recorder.supported) { $("btnRec").hidden = false; majDureeEnregistree(); }
+  $("btnRec").onclick = async () => {
+    if (recorder.status.actif) {
+      await recorder.stop();
+      await majDureeEnregistree();
+      toast("Enregistrement en pause");
+      return;
+    }
+    if (!recConsenti) {
+      const ok = await ask("Enregistrer le son de l'atelier ?",
+        "Les participants doivent être informés de l'enregistrement et donner leur accord.\n\nLe son est enregistré sur ce poste (dossier sorties/audio/ de l'atelier), puis transcrit sur ce poste depuis la page « Compte rendu » : rien n'est envoyé sur internet.",
+        "Ils sont d'accord : enregistrer", "Annuler");
+      if (!ok) return;
+      recConsenti = true;
+    }
+    try { await recorder.start(); toast("Enregistrement démarré"); } catch (e) { toast("Micro inaccessible : " + (e.message || e.name)); }
+  };
 
   buildToc();
   render();

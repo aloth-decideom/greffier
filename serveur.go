@@ -13,6 +13,8 @@ package main
 //   /api/mettre-a-jour      installe la nouvelle version puis redémarre (majauto.go)
 //   /a/<slug>/…             page d'atelier (fichiers intégrés + questions.js lu en direct)
 //   /a/<slug>/api/…         sauvegarde sur disque dans <atelier>/sorties/
+//   /a/<slug>/api/cr-claude compte rendu rédigé par Claude Code (ia.go)
+//   /a/<slug>/api/audio…    enregistrement du son (audio.go) ; api/transcrire : transcription locale (transcription.go)
 
 import (
 	"context"
@@ -49,6 +51,8 @@ type Serveur struct {
 	arretOnce  sync.Once
 	Maj        verificateurMaj
 	majEnCours atomic.Bool
+	crEnCours  atomic.Bool // une rédaction par Claude à la fois
+	Transcr    transcripteur
 	Relance    atomic.Bool // nouvelle version installée : main la lance après l'arrêt
 }
 
@@ -596,6 +600,110 @@ func (s *Serveur) api(w http.ResponseWriter, r *http.Request, dir, route string)
 			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "heure": time.Now().Format("15:04:05")})
+
+	case route == "claude" && r.Method == http.MethodGet:
+		writeJSON(w, http.StatusOK, map[string]bool{"disponible": cheminClaude() != ""})
+
+	case route == "cr-claude" && r.Method == http.MethodPost:
+		var p struct{ Texte string }
+		if err := json.NewDecoder(io.LimitReader(r.Body, maxBody)).Decode(&p); err != nil || strings.TrimSpace(p.Texte) == "" {
+			erreur(w, http.StatusBadRequest, "données illisibles")
+			return
+		}
+		if !s.crEnCours.CompareAndSwap(false, true) {
+			erreur(w, http.StatusOK, "une rédaction est déjà en cours")
+			return
+		}
+		defer s.crEnCours.Store(false)
+		logf("Compte rendu : rédaction par Claude en cours…")
+		md, err := redigerAvecClaude(r.Context(), sorties, p.Texte)
+		if err != nil {
+			logf("⚠ Compte rendu : %v", err)
+			erreur(w, http.StatusOK, err.Error())
+			return
+		}
+		fichier := filepath.Join(sorties, "CR-"+filepath.Base(dir)+".md")
+		s.mu.Lock()
+		err = writeAtomic(fichier, []byte(md+"\n"))
+		s.mu.Unlock()
+		if err != nil {
+			erreur(w, http.StatusOK, "compte rendu rédigé mais non enregistré : "+err.Error())
+			return
+		}
+		logf("Compte rendu enregistré : %s", fichier)
+		writeJSON(w, http.StatusOK, map[string]string{"markdown": md, "fichier": fichier})
+
+	case route == "audio" && r.Method == http.MethodGet:
+		segments := listerSegments(sorties)
+		total := 0.0
+		for _, sg := range segments {
+			total += sg.Secondes
+		}
+		_, errT := os.Stat(filepath.Join(sorties, "transcription.md"))
+		writeJSON(w, http.StatusOK, map[string]any{"segments": segments, "secondes": total, "whisper": cheminWhisper() != "",
+			"transcription": errT == nil, "etat": s.Transcr.Etat(dir)})
+
+	case route == "audio" && r.Method == http.MethodDelete:
+		if _, err := os.Stat(filepath.Join(sorties, "transcription.md")); err != nil {
+			erreur(w, http.StatusOK, "transcrire l'enregistrement avant de supprimer l'audio")
+			return
+		}
+		if s.Transcr.occupe() {
+			erreur(w, http.StatusOK, "transcription en cours")
+			return
+		}
+		s.mu.Lock()
+		err := supprimerAudio(sorties)
+		s.mu.Unlock()
+		if err != nil {
+			erreur(w, http.StatusOK, err.Error())
+			return
+		}
+		logf("Audio déplacé dans %s", filepath.Join(dossierAudio(sorties), "supprimes"))
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+
+	case strings.HasPrefix(route, "audio/"):
+		seg, fin, _ := strings.Cut(strings.TrimPrefix(route, "audio/"), "/")
+		var err error
+		switch {
+		case fin == "" && r.Method == http.MethodPut:
+			data, rerr := io.ReadAll(io.LimitReader(r.Body, maxBody))
+			if rerr != nil {
+				erreur(w, http.StatusBadRequest, rerr.Error())
+				return
+			}
+			s.mu.Lock()
+			err = ajouterAudio(sorties, seg, data)
+			s.mu.Unlock()
+		case fin == "fin" && r.Method == http.MethodPost:
+			s.mu.Lock()
+			err = finaliserWAV(sorties, seg)
+			s.mu.Unlock()
+		default:
+			erreur(w, http.StatusMethodNotAllowed, "méthode non permise")
+			return
+		}
+		if err != nil {
+			erreur(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+
+	case route == "transcrire" && r.Method == http.MethodPost:
+		if err := s.Transcr.Lancer(dir, s.Arret); err != nil {
+			erreur(w, http.StatusOK, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+
+	case route == "transcription.md" && r.Method == http.MethodGet:
+		data, err := os.ReadFile(filepath.Join(sorties, "transcription.md"))
+		if err != nil {
+			erreur(w, http.StatusNotFound, "pas de transcription")
+			return
+		}
+		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		_, _ = w.Write(data)
 
 	case strings.HasPrefix(route, "photo/"):
 		name := strings.TrimPrefix(route, "photo/")
