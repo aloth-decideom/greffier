@@ -105,7 +105,7 @@ func TestMorceauxAudio(t *testing.T) {
 		{Seg: "seg", T: 5, ID: "A2"},   // dans le désordre
 		{Seg: "seg", T: 29.8, ID: "D"}, // trop près de la fin
 	}
-	got := morceauxAudio(30*s, reperes, "seg")
+	got := morceauxAudio(30*s, reperes, "seg", true)
 	want := [][2]int{{0, 5 * s}, {5 * s, 10 * s}, {10 * s, 30 * s}}
 	if len(got) != len(want) {
 		t.Fatalf("morceaux : %v", got)
@@ -115,7 +115,71 @@ func TestMorceauxAudio(t *testing.T) {
 			t.Errorf("morceau %d : %v, attendu %v", i, got[i], want[i])
 		}
 	}
-	if m := morceauxAudio(3*s, nil, "seg"); len(m) != 1 || m[0] != [2]int{0, 3 * s} {
+	if m := morceauxAudio(3*s, nil, "seg", true); len(m) != 1 || m[0] != [2]int{0, 3 * s} {
 		t.Errorf("sans repère : %v", m)
+	}
+}
+
+// Pendant l'enregistrement : seuls les morceaux terminés, avec des bornes qui ne bougent plus.
+func TestMorceauxAudioEnCours(t *testing.T) {
+	const s = frequenceAudio
+	reperes := []repere{{Seg: "seg", T: 0, ID: "A"}, {Seg: "seg", T: 30, ID: "B"}}
+	// 30 s sur A, puis 4 min 10 s sur B : coupé toutes les 2 min, le reste est en cours
+	got := morceauxAudio(280*s, reperes, "seg", false)
+	want := [][2]int{{0, 30 * s}, {30 * s, 150 * s}, {150 * s, 270 * s}}
+	if len(got) != len(want) {
+		t.Fatalf("morceaux : %v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("morceau %d : %v, attendu %v", i, got[i], want[i])
+		}
+	}
+	// plus tard, un repère C à 300 s puis la fin : les morceaux déjà rendus sont inchangés
+	reperes = append(reperes, repere{Seg: "seg", T: 300, ID: "C"})
+	fin := morceauxAudio(310*s, reperes, "seg", true)
+	for i := range want {
+		if fin[i] != want[i] {
+			t.Errorf("morceau %d modifié : %v", i, fin[i])
+		}
+	}
+	if fin[3] != [2]int{270 * s, 300 * s} || fin[4] != [2]int{300 * s, 310 * s} || len(fin) != 5 {
+		t.Errorf("fin : %v", fin)
+	}
+	if m := morceauxAudio(20*s, nil, "seg", false); len(m) != 0 {
+		t.Errorf("rien de terminé attendu : %v", m)
+	}
+}
+
+func TestLirePlage(t *testing.T) {
+	sorties := t.TempDir()
+	seg := "seg-20261012-100000"
+	ech := func(a, b int) []byte { // échantillons a..b-1, valeur = numéro
+		var out []byte
+		for i := a; i < b; i++ {
+			out = append(out, byte(i), byte(i>>8))
+		}
+		return out
+	}
+	if err := ajouterAudio(sorties, seg, ech(0, 100)); err != nil {
+		t.Fatal(err)
+	}
+	if err := finaliserWAV(sorties, seg); err != nil {
+		t.Fatal(err)
+	}
+	if err := ajouterAudio(sorties, seg, ech(100, 160)); err != nil { // reprise après plantage : .wav + .pcm
+		t.Fatal(err)
+	}
+	if n := echantillons(sorties, seg); n != 160 {
+		t.Fatalf("%d échantillons", n)
+	}
+	for _, p := range [][2]int{{0, 10}, {90, 120}, {100, 160}, {130, 140}} {
+		got, err := lirePlage(sorties, seg, p[0], p[1])
+		if err != nil || string(got) != string(ech(p[0], p[1])) {
+			t.Errorf("plage %v : %v, %v", p, got, err)
+		}
+	}
+	if _, err := lirePlage(sorties, seg, 150, 170); err == nil {
+		t.Error("plage au-delà de la fin acceptée")
 	}
 }

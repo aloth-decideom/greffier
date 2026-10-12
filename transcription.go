@@ -14,6 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -174,10 +175,20 @@ func (c *compteur) Write(p []byte) (int, error) {
 
 var reProgres = regexp.MustCompile(`progress\s*=\s*(\d+)%`)
 
+// GREFFIER_SANS_TRANSCRIPTION_DIRECTE=1 : ne transcrire qu'à la demande (bouton « Transcrire »),
+// par exemple sur un poste trop lent pour transcrire pendant l'atelier.
+var transcriptionDirecteDesactivee = os.Getenv("GREFFIER_SANS_TRANSCRIPTION_DIRECTE") != ""
+
+// Un long passage sur la même question est coupé toutes les 2 min, pour être transcrit pendant
+// que l'enregistrement continue.
+const dureeMaxMorceau = 120 * frequenceAudio
+
 // morceauxAudio : bornes (en échantillons) des morceaux d'un segment de n échantillons, coupé à
 // chaque repère. Ainsi chaque passage transcrit appartient sans ambiguïté à sa question, même
 // quand la détection des silences rend l'horodatage de Whisper approximatif.
-func morceauxAudio(n int, reperes []repere, seg string) [][2]int {
+// Segment en cours d'enregistrement (complet = false) : seuls les morceaux terminés sont
+// renvoyés ; leurs bornes ne changent plus quand l'enregistrement s'allonge.
+func morceauxAudio(n int, reperes []repere, seg string, complet bool) [][2]int {
 	coupes := []int{0}
 	var ts []float64
 	for _, r := range reperes {
@@ -198,30 +209,114 @@ func morceauxAudio(n int, reperes []repere, seg string) [][2]int {
 		if i+1 < len(coupes) {
 			fin = coupes[i+1]
 		}
-		bornes = append(bornes, [2]int{c, fin})
+		for d := c; d < fin; d += dureeMaxMorceau {
+			f := min(d+dureeMaxMorceau, fin)
+			if !complet && i+1 == len(coupes) && f < d+dureeMaxMorceau {
+				break // dernier morceau, encore en train de s'enregistrer
+			}
+			bornes = append(bornes, [2]int{d, f})
+		}
 	}
 	return bornes
 }
 
-// transcrireSegment transcrit audio/<seg>.wav morceau par morceau et écrit audio/<seg>.json
-// (format de whisper-cli, décalages en ms depuis le début du segment).
-func transcrireSegment(ctx context.Context, whisper, modele, vad, sorties, seg string, reperes []repere, progres func(int)) error {
+// Audio d'un segment : les données du .wav finalisé, suivies du .pcm en cours d'écriture
+// (les deux n'existent ensemble qu'après une reprise sur plantage).
+func fichiersAudio(sorties, seg string) [2]struct {
+	chemin string
+	entete int64
+} {
 	base := filepath.Join(dossierAudio(sorties), seg)
-	wav, err := os.ReadFile(base + ".wav")
+	return [2]struct {
+		chemin string
+		entete int64
+	}{{base + ".wav", tailleEnteteWAV}, {base + ".pcm", 0}}
+}
+
+// echantillons : nombre d'échantillons enregistrés dans le segment.
+func echantillons(sorties, seg string) int {
+	var n int64
+	for _, f := range fichiersAudio(sorties, seg) {
+		if st, err := os.Stat(f.chemin); err == nil {
+			n += max(st.Size()-f.entete, 0)
+		}
+	}
+	return int(n / 2)
+}
+
+// lirePlage : les échantillons [d, f) du segment, sans relire tout l'enregistrement.
+func lirePlage(sorties, seg string, d, f int) ([]byte, error) {
+	out := make([]byte, 0, (f-d)*2)
+	off, reste := int64(d)*2, int64(f-d)*2
+	for _, fa := range fichiersAudio(sorties, seg) {
+		fi, err := os.Open(fa.chemin)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return nil, err
+		}
+		st, err := fi.Stat()
+		if err == nil {
+			taille := st.Size() - fa.entete
+			if off < taille && reste > 0 {
+				buf := make([]byte, min(reste, taille-off))
+				_, err = fi.ReadAt(buf, fa.entete+off)
+				out, reste, off = append(out, buf...), reste-int64(len(buf)), 0
+			} else {
+				off -= max(taille, 0)
+			}
+		}
+		fi.Close()
+		if err != nil {
+			return nil, err
+		}
+	}
+	if reste > 0 {
+		return nil, fmt.Errorf("audio incomplet pour %s", seg)
+	}
+	return out, nil
+}
+
+// Les morceaux transcrits sont gardés dans audio/<seg>.morceaux/<début>-<fin>.json
+// (en échantillons) : rien n'est transcrit deux fois.
+func cheminMorceau(sorties, seg string, b [2]int) string {
+	return filepath.Join(dossierAudio(sorties), seg+".morceaux", fmt.Sprintf("%d-%d", b[0], b[1]))
+}
+
+// transcrireMorceau passe un morceau du segment à whisper-cli (sauf s'il est déjà transcrit).
+func (t *transcripteur) transcrireMorceau(ctx context.Context, whisper, modele, vad string, threads int, sorties, seg string, b [2]int, progres func(int)) error {
+	f := cheminMorceau(sorties, seg, b)
+	if _, err := os.Stat(f + ".json"); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(f), 0o755); err != nil {
+		return err
+	}
+	deverrouiller := t.verrou()
+	donnees, err := lirePlage(sorties, seg, b[0], b[1])
+	deverrouiller()
 	if err != nil {
 		return err
 	}
-	if len(wav) < tailleEnteteWAV {
-		return fmt.Errorf("%s.wav illisible", seg)
-	}
-	pcm := wav[tailleEnteteWAV:]
-	n := len(pcm) / 2
-	tmp := base + ".morceaux"
-	if err := os.MkdirAll(tmp, 0o755); err != nil {
+	if err := os.WriteFile(f+".wav", append(enteteWAV(uint32(len(donnees))), donnees...), 0o644); err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmp)
+	defer os.Remove(f + ".wav")
+	tmp := f + ".en-cours"
+	args := []string{"-m", modele, "-f", f + ".wav", "-l", "fr", "-t", strconv.Itoa(threads), "-pp", "-oj", "-of", tmp}
+	if vad != "" {
+		args = append(args, "--vad", "-vm", vad)
+	}
+	if err := lancerWhisper(ctx, whisper, args, progres); err != nil {
+		os.Remove(tmp + ".json")
+		return err
+	}
+	return os.Rename(tmp+".json", f+".json")
+}
 
+// assemblerSegment réunit les morceaux transcrits d'un segment terminé dans audio/<seg>.json
+// (format de whisper-cli, décalages en ms depuis le début du segment).
+func assemblerSegment(sorties, seg string, bornes [][2]int) error {
 	type sortie struct {
 		Offsets struct {
 			From int `json:"from"`
@@ -229,22 +324,9 @@ func transcrireSegment(ctx context.Context, whisper, modele, vad, sorties, seg s
 		} `json:"offsets"`
 		Text string `json:"text"`
 	}
-	var tout []sortie
-	for i, b := range morceauxAudio(n, reperes, seg) {
-		f := filepath.Join(tmp, fmt.Sprintf("%03d", i))
-		donnees := pcm[b[0]*2 : b[1]*2]
-		if err := os.WriteFile(f+".wav", append(enteteWAV(uint32(len(donnees))), donnees...), 0o644); err != nil {
-			return err
-		}
-		args := []string{"-m", modele, "-f", f + ".wav", "-l", "fr", "-t", strconv.Itoa(min(runtime.NumCPU(), 8)), "-pp", "-oj", "-of", f}
-		if vad != "" {
-			args = append(args, "--vad", "-vm", vad)
-		}
-		err := lancerWhisper(ctx, whisper, args, func(p int) { progres((b[0]*100 + (b[1]-b[0])*p) / max(n, 1)) })
-		if err != nil {
-			return err
-		}
-		raw, err := os.ReadFile(f + ".json")
+	tout := []sortie{}
+	for _, b := range bornes {
+		raw, err := os.ReadFile(cheminMorceau(sorties, seg, b) + ".json")
 		if err != nil {
 			return err
 		}
@@ -264,7 +346,7 @@ func transcrireSegment(ctx context.Context, whisper, modele, vad, sorties, seg s
 	if err != nil {
 		return err
 	}
-	return writeAtomic(base+".json", res)
+	return writeAtomic(filepath.Join(dossierAudio(sorties), seg+".json"), res)
 }
 
 // lancerWhisper exécute whisper-cli et suit sa progression (option -pp, sur stderr).
@@ -489,11 +571,33 @@ type EtatTranscription struct {
 	Erreur   string `json:"erreur,omitempty"`
 }
 
-// transcripteur : une transcription à la fois (elle occupe tout le processeur).
+// transcripteur : une transcription à la fois (elle occupe le processeur). Démarrée par le
+// premier morceau d'audio reçu, elle suit l'enregistrement : chaque question terminée (ou toutes
+// les 2 min) est transcrite pendant l'atelier, avec moins de threads pour ne pas gêner le poste.
+// Quand plus rien ne s'enregistre, elle transcrit le reste et écrit transcription.md.
 type transcripteur struct {
 	mu      sync.Mutex
 	dossier string
 	etat    EtatTranscription
+	disque  *sync.Mutex // verrou des écritures sur disque du serveur (ajouts d'audio, finalisation)
+	reveil  chan struct{}
+}
+
+// Reveiller : un enregistrement vient d'être mis en pause, inutile d'attendre la prochaine vérification.
+func (t *transcripteur) Reveiller() {
+	select {
+	case t.canalReveil() <- struct{}{}:
+	default: // un réveil est déjà en attente
+	}
+}
+
+func (t *transcripteur) canalReveil() chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.reveil == nil {
+		t.reveil = make(chan struct{}, 1)
+	}
+	return t.reveil
 }
 
 func (t *transcripteur) Etat(dir string) EtatTranscription {
@@ -517,7 +621,15 @@ func (t *transcripteur) maj(f func(e *EtatTranscription)) {
 	t.mu.Unlock()
 }
 
-// Lancer démarre la transcription des segments pas encore transcrits de l'atelier dir.
+func (t *transcripteur) verrou() func() {
+	if t.disque == nil {
+		return func() {}
+	}
+	t.disque.Lock()
+	return t.disque.Unlock
+}
+
+// Lancer démarre la transcription de l'atelier dir (sans effet si elle tourne déjà pour lui).
 // arret : fermé à l'arrêt de l'application, qui interrompt whisper-cli.
 func (t *transcripteur) Lancer(dir string, arret <-chan struct{}) error {
 	whisper := cheminWhisper()
@@ -526,10 +638,14 @@ func (t *transcripteur) Lancer(dir string, arret <-chan struct{}) error {
 	}
 	t.mu.Lock()
 	if t.etat.EnCours {
+		autre := t.dossier != dir
 		t.mu.Unlock()
-		return errors.New("une transcription est déjà en cours")
+		if autre {
+			return errors.New("la transcription d'un autre atelier est en cours")
+		}
+		return nil
 	}
-	t.dossier, t.etat = dir, EtatTranscription{EnCours: true, Etape: "Préparation…"}
+	t.dossier, t.etat = dir, EtatTranscription{EnCours: true, Etape: "Préparation"}
 	t.mu.Unlock()
 
 	go func() {
@@ -553,15 +669,26 @@ func (t *transcripteur) Lancer(dir string, arret <-chan struct{}) error {
 		if err != nil {
 			logf("⚠ Transcription : %v", err)
 		} else {
-			logf("Transcription terminée en %s : %s", time.Since(debut).Round(time.Second), filepath.Join(dir, "sorties", "transcription.md"))
+			logf("Transcription terminée (%s après son démarrage) : %s", time.Since(debut).Round(time.Second), filepath.Join(dir, "sorties", "transcription.md"))
 		}
 	}()
 	return nil
 }
 
+func dureeLisible(s float64) string {
+	if s < 60 {
+		return fmt.Sprintf("%d s", int(s))
+	}
+	m := int(s / 60)
+	if m < 60 {
+		return fmt.Sprintf("%d min", m)
+	}
+	return fmt.Sprintf("%d h %02d", m/60, m%60)
+}
+
 func (t *transcripteur) executer(ctx context.Context, dir, whisper string) error {
 	sorties := filepath.Join(dir, "sorties")
-	t.maj(func(e *EtatTranscription) { e.Etape = "Modèle de transcription…" })
+	t.maj(func(e *EtatTranscription) { e.Etape = "Modèle de transcription" })
 	modele, err := assurerModele(ctx, func(p int) {
 		t.maj(func(e *EtatTranscription) {
 			e.Etape, e.Pourcent = "Téléchargement du modèle de transcription (une seule fois)", p
@@ -570,31 +697,88 @@ func (t *transcripteur) executer(ctx context.Context, dir, whisper string) error
 	if err != nil {
 		return err
 	}
-	t.maj(func(e *EtatTranscription) { e.Etape, e.Pourcent = "Détection des silences…", 0 })
+	t.maj(func(e *EtatTranscription) { e.Etape, e.Pourcent = "Détection des silences", 0 })
 	vad := assurerVAD(ctx, whisper)
-	reperes := lireSessionAudio(sorties).Audio.Reperes
-	var aFaire []string
-	for _, s := range listerSegments(sorties) {
-		if s.EnCours {
-			continue // encore en train de s'enregistrer : ce sera pour la prochaine fois
+	threadsDirect := max(1, min(runtime.NumCPU()/2, 6))
+	threads := min(runtime.NumCPU(), 8)
+
+	for {
+		reperes := lireSessionAudio(sorties).Audio.Reperes
+		segments := listerSegments(sorties)
+		enDirect := false
+		total, fait := 0.0, 0.0
+		type tache struct {
+			seg    infoSegment
+			bornes [][2]int
 		}
-		if err := finaliserWAV(sorties, s.ID); err != nil {
-			return err
+		var taches []tache
+		for _, sg := range segments {
+			total += sg.Secondes
+			if sg.Transcrit {
+				fait += sg.Secondes
+				continue
+			}
+			enDirect = enDirect || sg.EnCours
+			deverrouiller := t.verrou()
+			var err error
+			if !sg.EnCours {
+				err = finaliserWAV(sorties, sg.ID)
+			}
+			n := echantillons(sorties, sg.ID)
+			deverrouiller()
+			if err != nil {
+				return err
+			}
+			bornes := morceauxAudio(n, reperes, sg.ID, !sg.EnCours)
+			for _, b := range bornes {
+				if _, err := os.Stat(cheminMorceau(sorties, sg.ID, b) + ".json"); err == nil {
+					fait += float64(b[1]-b[0]) / frequenceAudio
+				}
+			}
+			taches = append(taches, tache{sg, bornes})
 		}
-		if !s.Transcrit {
-			aFaire = append(aFaire, s.ID)
+		libelle := "Transcription"
+		if enDirect {
+			libelle = "Transcription au fil de l'enregistrement"
 		}
-	}
-	for i, seg := range aFaire {
-		logf("Transcription de %s (%d/%d)…", seg, i+1, len(aFaire))
-		err := transcrireSegment(ctx, whisper, modele, vad, sorties, seg, reperes, func(p int) {
+		etat := func(f float64) {
 			t.maj(func(e *EtatTranscription) {
-				e.Etape = fmt.Sprintf("Transcription de l'enregistrement %d/%d", i+1, len(aFaire))
-				e.Pourcent = (i*100 + p) / len(aFaire)
+				e.Etape = fmt.Sprintf("%s : %s sur %s", libelle, dureeLisible(f), dureeLisible(total))
+				e.Pourcent = int(f * 100 / max(total, 1))
 			})
-		})
-		if err != nil {
-			return err
+		}
+		etat(fait)
+		for _, ta := range taches {
+			n := threads
+			if enDirect {
+				n = threadsDirect
+			}
+			for _, b := range ta.bornes {
+				if _, err := os.Stat(cheminMorceau(sorties, ta.seg.ID, b) + ".json"); err == nil {
+					continue
+				}
+				d := float64(b[1]-b[0]) / frequenceAudio
+				err := t.transcrireMorceau(ctx, whisper, modele, vad, n, sorties, ta.seg.ID, b, func(p int) { etat(fait + d*float64(p)/100) })
+				if err != nil {
+					return err
+				}
+				fait += d
+				etat(fait)
+			}
+			if !ta.seg.EnCours {
+				if err := assemblerSegment(sorties, ta.seg.ID, ta.bornes); err != nil {
+					return err
+				}
+			}
+		}
+		if !enDirect {
+			break
+		}
+		select { // l'enregistrement continue : on revient voir ce qui s'est terminé
+		case <-ctx.Done():
+			return errors.New("transcription interrompue")
+		case <-t.canalReveil():
+		case <-time.After(15 * time.Second):
 		}
 	}
 	_, err = assemblerTranscription(dir)

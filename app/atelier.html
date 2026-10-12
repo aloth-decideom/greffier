@@ -1075,7 +1075,7 @@
   // ---------- Enregistrement du son ----------
   // Repères : chaque question ou page affichée pendant l'enregistrement est notée avec sa position
   // dans le segment, pour découper la transcription par question (transcription.go).
-  let recAvant = 0, recConsenti = false, dernierRepere = null;
+  let recAvant = 0, recConsenti = false, dernierRepere = null, recInfo = null, recRelu = 0;
   const recorder = NC.createRecorder({ onStatus: renderRec, onSegment: () => { dernierRepere = null; markAudio(); } });
   function markAudio() {
     if (!recorder.status.actif) return;
@@ -1091,15 +1091,21 @@
     b.classList.toggle("on", st.actif);
     b.classList.toggle("warn", !!st.erreur);
     b.textContent = st.actif ? fmt(total * 1000) : total ? `🎙 Reprendre (${fmt(total * 1000)})` : "🎙 Enregistrer";
-    b.title = st.erreur ? "⚠ " + st.erreur : st.actif ? "Enregistrement en cours : cliquer pour mettre en pause" : "Enregistrer le son de l'atelier, pour une transcription locale (sorties/audio/)";
+    const transcr = recInfo && recInfo.etat && recInfo.etat.etape ? "\n" + recInfo.etat.etape : "";
+    b.title = (st.erreur ? "⚠ " + st.erreur : st.actif ? "Enregistrement en cours : cliquer pour mettre en pause" : "Enregistrer le son de l'atelier, pour une transcription locale (sorties/audio/)") + transcr;
+    if (st.actif && Date.now() - recRelu > 15000) { recRelu = Date.now(); majDureeEnregistree(); }   // avancement de la transcription
   }
-  const majDureeEnregistree = () => fetch("api/audio").then((r) => r.json()).then((r) => { recAvant = r.secondes || 0; renderRec(); }).catch(() => {});
+  const majDureeEnregistree = () => fetch("api/audio").then((r) => r.json()).then((r) => {
+    recInfo = r;
+    recAvant = r.segments.filter((sg) => !recorder.status.actif || sg.id !== recorder.status.seg).reduce((n, sg) => n + sg.secondes, 0);   // segments précédents seulement
+    renderRec();
+  }).catch(() => {});
   if (recorder.supported) { $("btnRec").hidden = false; majDureeEnregistree(); }
   $("btnRec").onclick = async () => {
     if (recorder.status.actif) {
       await recorder.stop();
       await majDureeEnregistree();
-      toast("Enregistrement en pause");
+      toast(recInfo && recInfo.whisper ? "Enregistrement en pause : la transcription se termine en arrière-plan" : "Enregistrement en pause");
       return;
     }
     if (!recConsenti) {

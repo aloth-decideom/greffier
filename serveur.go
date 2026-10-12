@@ -57,8 +57,10 @@ type Serveur struct {
 }
 
 func NewServeur(port int) *Serveur {
-	return &Serveur{origin: fmt.Sprintf("http://127.0.0.1:%d", port), ateliers: map[string]string{}, Arret: make(chan struct{}),
+	s := &Serveur{origin: fmt.Sprintf("http://127.0.0.1:%d", port), ateliers: map[string]string{}, Arret: make(chan struct{}),
 		Maj: verificateurMaj{info: InfoVersion{Version: version}}}
+	s.Transcr.disque = &s.mu
+	return s
 }
 
 func (s *Serveur) Handler() http.Handler {
@@ -675,10 +677,14 @@ func (s *Serveur) api(w http.ResponseWriter, r *http.Request, dir, route string)
 			s.mu.Lock()
 			err = ajouterAudio(sorties, seg, data)
 			s.mu.Unlock()
+			if err == nil && !transcriptionDirecteDesactivee && cheminWhisper() != "" {
+				_ = s.Transcr.Lancer(dir, s.Arret) // transcription au fil de l'enregistrement (sans effet si déjà lancée)
+			}
 		case fin == "fin" && r.Method == http.MethodPost:
 			s.mu.Lock()
 			err = finaliserWAV(sorties, seg)
 			s.mu.Unlock()
+			s.Transcr.Reveiller()
 		default:
 			erreur(w, http.StatusMethodNotAllowed, "méthode non permise")
 			return
