@@ -30,7 +30,7 @@ Les photos sont réduites automatiquement (environ 300 Ko), enregistrées dans `
 ## Avant l'atelier (J-3)
 1. Envoyer `ordre-du-jour.md`, avec la liste des documents à préparer.
 2. Ajuster `questions.md` (ajouter ou retirer des questions et des `*`) ; recharger la page de l'atelier pour voir le résultat.
-3. **Répétition** : lancer Greffier, ouvrir l'atelier, vérifier le témoin « 💾 », appuyer sur **P**, glisser la 2e fenêtre sur l'écran externe, **F** pour le plein écran. Saisir une réponse, coller une image, vérifier qu'elles apparaissent dans `sorties/`, puis « Nouvelle session » (la répétition est gardée dans `sorties/historique/`).
+3. **Répétition** : lancer Greffier, ouvrir l'atelier, vérifier le témoin « 💾 », appuyer sur **P**, glisser la 2e fenêtre sur l'écran externe, **F** pour le plein écran. Saisir une réponse, coller une image, vérifier qu'elles apparaissent dans `sorties/`, puis « ⋯ Plus » → « Nouvelle session » (la répétition est gardée dans `sorties/historique/`).
 4. Vérifier que le navigateur autorise les pop-ups pour cette page (sinon l'écran projeté ne s'ouvre pas).
 
 ## Pendant l'atelier
@@ -43,12 +43,12 @@ Les photos sont réduites automatiquement (environ 300 Ko), enregistrées dans `
 - **Garder la fenêtre de Greffier ouverte** : c'est elle qui écrit sur le disque. Si le témoin passe au rouge, cliquer dessus pour voir le message.
 - **5 dernières minutes** : touche **S**. La synthèse (décisions, actions, risques) s'affiche aussi à l'écran projeté, et on la fait valider en séance.
 
-**En fin de séance** : **⏻ Arrêter l'application** (en bas de la barre latérale) ou, depuis l'icône Greffier de la zone de notification, **Arrêter Greffier**. Les notes restent dans `sorties/`.
+**En fin de séance** : « ⋯ Plus » → **⏻ Arrêter l'application** (en bas de la barre latérale) ou, depuis l'icône Greffier de la zone de notification, **Arrêter Greffier**. Les notes restent dans `sorties/`.
 
 ## Après l'atelier
 1. **Le soir même** : rien à exporter, `sorties/` contient déjà `notes.md`, `photos/` et `session.json`.
-   Optionnel : « 🖨 Notes brutes PDF » pour diffuser les notes en interne ; « Exporter l'atelier (.zip) » pour envoyer l'ensemble à un collègue.
-2. **J+1, rédaction par l'IA** : « 📝 Compte rendu (IA → PDF) », puis « 🤖 Copier pour l'IA » et coller dans **Gemini**. Le prompt impose le modèle de CR, interdit d'inventer et fait marquer **[À CONFIRMER]** ce qui est ambigu.
+   Optionnel, dans « ⋯ Plus » : « 🖨 Notes brutes (PDF) » pour diffuser les notes en interne ; « Exporter l'atelier (.zip) » pour envoyer l'ensemble à un collègue.
+2. **J+1, rédaction par l'IA** : « 📝 Compte rendu », puis « ✨ Rédiger avec Claude », ou « 🤖 Copier pour une autre IA » et coller dans **Gemini**. Le prompt impose le modèle de CR, interdit d'inventer et fait marquer **[À CONFIRMER]** ce qui est ambigu.
    Avec Claude Code : `/compte-rendu <atelier>` fait tout, jusqu'au PDF.
 3. **Relecture** : coller la réponse dans `cr.html`, traiter chaque [À CONFIRMER] (ils sont surlignés et comptés), vérifier les actions (qui, quand) et les chiffres.
 4. **PDF** : « 🖨 Imprimer / PDF », puis « Enregistrer en PDF » ; envoi sous 48 h. Garder aussi le « ⬇ CR .md » dans `sorties/`.

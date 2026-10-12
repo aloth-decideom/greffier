@@ -12,6 +12,9 @@
   body { font-family: var(--font); color: var(--texte); background: #ececf0; display: grid; grid-template-columns: minmax(340px, 38%) 1fr; overflow: hidden; }
   button, textarea { font: inherit; color: inherit; }
   button { cursor: pointer; }
+  [hidden] { display: none !important; }
+  a.accueil { display: inline-flex; border-radius: 6px; }
+  a.accueil:hover img { opacity: .75; }
 
   /* ---------- Éditeur ---------- */
   .editor { display: flex; flex-direction: column; background: var(--fond); border-right: 1px solid var(--ligne); min-width: 0; }
@@ -20,15 +23,19 @@
   .editor .logo img { height: 30px; }
   .editor .client { color: var(--rouge); font-family: var(--font-titre); font-weight: 600; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; }
   .editor h1 { margin: 8px 0 0; font-family: var(--font-titre); font-size: 17px; color: var(--encre); font-weight: 500; }
-  .steps { margin: 10px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--gris); line-height: 1.6; }
-  .steps b { color: var(--texte); }
-  .bar { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 18px; border-bottom: 1px solid var(--ligne); }
+  .etapes { list-style: none; margin: 0; padding: 4px 0; counter-reset: etape; border-bottom: 1px solid var(--ligne); }
+  .etapes > li { counter-increment: etape; padding: 8px 18px 10px 50px; position: relative; display: grid; gap: 6px; }
+  .etapes > li::before { content: counter(etape); position: absolute; left: 18px; top: 8px; width: 22px; height: 22px; border-radius: 50%; background: var(--encre); color: #fff; font-size: 12px; font-weight: 600; display: grid; place-items: center; }
+  .etapes .titre { font-family: var(--font-titre); font-weight: 600; font-size: 13.5px; color: var(--encre); line-height: 22px; }
+  .etapes .aide { font-size: 12px; color: var(--gris); line-height: 1.45; }
+  .etapes .aide b { color: var(--texte); }
+  .bar { display: flex; flex-wrap: wrap; gap: 6px; }
   .bar button { border: 1px solid var(--ligne); background: var(--fond); border-radius: 8px; padding: 7px 10px; font-size: 12.5px; }
   .bar button:hover { border-color: var(--rouge); color: var(--rouge); }
   .bar .primary { font-family: var(--font-titre); background: var(--rouge); border-color: var(--rouge); color: #fff; font-weight: 600; }
   .bar .primary:hover { background: var(--rouge-fonce); color: #fff; }
   textarea#md { flex: 1; border: 0; resize: none; padding: 14px 18px; font-family: var(--mono); font-size: 12.5px; line-height: 1.55; outline: none; background: var(--fond-2); }
-  .audio { padding: 10px 18px; border-bottom: 1px solid var(--ligne); font-size: 12.5px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+  .audio { font-size: 12.5px; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
   .audio button { border: 1px solid var(--ligne); background: var(--fond); border-radius: 8px; padding: 5px 9px; font-size: 12.5px; }
   .audio button:hover { border-color: var(--rouge); color: var(--rouge); }
   .audio .warn { color: var(--warn); }
@@ -59,24 +66,34 @@
 <body>
 <section class="editor">
   <header>
-    <div class="logo"><img src="img/logo-decideom.png" alt="DecideOm"><span class="client" id="client"></span></div>
-    <h1>Mise en page du compte rendu</h1>
-    <ol class="steps">
-      <li><b>Rédiger avec Claude</b> (Claude Code installé), ou <b>Copier pour l'IA</b> puis coller dans Gemini (ou Claude, ChatGPT…).</li>
-      <li>Coller sa réponse ci-dessous (ou <b>Importer .md</b>) et relire.</li>
-      <li>Corriger les <b>[À CONFIRMER]</b>, puis <b>Imprimer / PDF</b>.</li>
-    </ol>
+    <div class="logo"><a class="accueil" href="/" title="Retour à l'accueil de Greffier (liste des ateliers)" onclick="return /^https?:$/.test(location.protocol)"><img src="img/logo-decideom.png" alt="DecideOm"></a><span class="client" id="client"></span></div>
+    <h1>Compte rendu</h1>
   </header>
-  <div class="bar">
-    <button class="primary" id="bClaude" hidden title="Claude Code rédige le compte rendu (abonnement Claude, sans clé API) ; enregistré aussi dans sorties/">✨ Rédiger avec Claude</button>
-    <button id="bCopy" title="Copie le prompt + les notes de l'atelier dans le presse-papiers">🤖 Copier pour l'IA</button>
-    <button id="bPromptFile" title="Même contenu, en fichier .md à joindre">⬇ Prompt + notes (.md)</button>
-    <button id="bImport">Importer .md</button>
-    <button id="bPhotos" title="Si les photos ne viennent pas de ce navigateur : choisir les fichiers du dossier photos/ de l'export">Charger des photos</button>
-    <button id="bSave" title="Télécharger le compte rendu en Markdown">⬇ CR .md</button>
-    <button class="primary" id="bPrint">🖨 Imprimer / PDF</button>
-  </div>
- <div class="audio" id="audio" hidden></div>
+  <ol class="etapes">
+    <li id="stepAudio" hidden>
+      <div class="titre">Transcription de l'enregistrement</div>
+      <div class="audio" id="audio"></div>
+    </li>
+    <li>
+      <div class="titre">Rédaction par l'IA</div>
+      <div class="bar">
+        <button class="primary" id="bClaude" hidden title="Claude Code rédige le compte rendu (abonnement Claude, sans clé API) ; enregistré aussi dans sorties/">✨ Rédiger avec Claude</button>
+        <button class="primary" id="bCopy" title="Copie le prompt + les notes de l'atelier dans le presse-papiers, à coller dans Gemini, ChatGPT…">🤖 Copier pour une autre IA</button>
+        <button id="bPromptFile" title="Même contenu, en fichier .md à joindre">⬇ Prompt + notes (.md)</button>
+      </div>
+      <div class="aide">Avec une autre IA : colle sa réponse dans la zone ci-dessous, ou importe-la à l'étape suivante.</div>
+    </li>
+    <li>
+      <div class="titre">Relecture et PDF</div>
+      <div class="aide">Corrige les <b>[À CONFIRMER]</b> directement dans le texte ci-dessous ; l'aperçu se met à jour à droite.</div>
+      <div class="bar">
+        <button id="bImport" title="Charger un compte rendu en Markdown">Importer .md</button>
+        <button id="bPhotos" title="Si les photos ne viennent pas de ce navigateur : choisir les fichiers du dossier photos/ de l'export">Charger des photos</button>
+        <button id="bSave" title="Télécharger le compte rendu en Markdown">⬇ CR .md</button>
+        <button class="primary" id="bPrint">🖨 Imprimer / PDF</button>
+      </div>
+    </li>
+  </ol>
   <textarea id="md" spellcheck="true" placeholder="Colle ici le compte rendu en Markdown produit par l'IA…"></textarea>
   <div class="status" id="status"></div>
 </section>
@@ -127,7 +144,7 @@
       return;
     }
     const el = $("audio"), e = r.etat || {};
-    el.hidden = !r.segments.length && !r.transcription;
+    $("stepAudio").hidden = !r.segments.length && !r.transcription;
     if (r.transcription && !transcription && !e.enCours) {
       transcription = await fetch("api/transcription.md").then((x) => (x.ok ? x.text() : "")).catch(() => "");
     }
@@ -167,7 +184,7 @@
 
   // ---------- Rédaction par Claude Code (page servie par Greffier seulement) ----------
   if (/^https?:$/.test(location.protocol)) {
-    fetch("api/claude").then((r) => r.json()).then((r) => { $("bClaude").hidden = !r.disponible; }).catch(() => {});
+    fetch("api/claude").then((r) => r.json()).then((r) => { $("bClaude").hidden = !r.disponible; $("bCopy").classList.toggle("primary", !r.disponible); }).catch(() => {});
   }
   $("bClaude").onclick = async () => {
     if ($("md").value.trim() && !confirm("Remplacer le compte rendu actuel par une nouvelle rédaction de Claude ?")) return;
@@ -233,7 +250,7 @@
     try { localStorage.setItem(CR_KEY, $("md").value); } catch (e) { /* stockage indisponible */ }
     const doc = $("doc");
     if (!md) {
-      doc.innerHTML = `<div class="empty">L'aperçu du compte rendu s'affichera ici.<br>1. « Copier pour l'IA » → Gemini<br>2. Coller la réponse à gauche</div>`;
+      doc.innerHTML = `<div class="empty">L'aperçu du compte rendu s'affichera ici.<br>1. « Rédiger avec Claude », ou « Copier pour une autre IA » → Gemini<br>2. Coller la réponse à gauche</div>`;
       status("");
       return;
     }

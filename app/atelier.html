@@ -14,6 +14,8 @@
   button, input, textarea { font: inherit; color: inherit; }
   button { cursor: pointer; }
   [hidden] { display: none !important; }
+  a.accueil { display: inline-flex; border-radius: 6px; }
+  a.accueil:hover img { opacity: .75; }
 
   /* ---------- Barre latérale ---------- */
   aside { background: var(--fond-2); border-right: 1px solid var(--ligne); display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
@@ -48,7 +50,21 @@
   .side-actions .primary { grid-column: 1 / -1; background: var(--rouge); color: #fff; border-color: var(--rouge); font-weight: 600; }
   .side-actions .primary:hover { background: var(--rouge-fonce); color: #fff; }
   .side-actions .wide { grid-column: 1 / -1; }
+  .side-actions .menu > button { width: 100%; }
   .warn { grid-column: 1 / -1; font-size: 11px; color: var(--warn); }
+
+  /* ---------- Menus ⋯ ---------- */
+  .menu { position: relative; }
+  .menu-list { position: absolute; right: 0; top: calc(100% + 6px); z-index: 12; min-width: 270px; background: var(--fond); border: 1px solid var(--ligne); border-radius: 10px; box-shadow: 0 8px 24px rgba(20,20,25,.16); padding: 6px; display: grid; }
+  .menu.up .menu-list { top: auto; bottom: calc(100% + 6px); }
+  .menu-list button, .side-actions .menu-list button { display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; border: 0; border-radius: 6px; background: none; padding: 8px 10px; font-size: 13px; color: var(--texte); }
+  .menu-list button:hover, .side-actions .menu-list button:hover { background: var(--fond-2); color: var(--rouge); }
+  .menu-list button.danger { color: var(--rouge-fonce); }
+  .menu-list button.check::before { content: ""; width: 14px; flex: none; }
+  .menu-list button.check.on::before { content: "✓"; color: var(--rouge); font-weight: 700; }
+  .menu-list:has(.check) button:not(.check) { padding-left: 32px; }
+  .menu-list kbd { margin-left: auto; font-family: var(--mono); font-size: 10.5px; color: var(--gris); border: 1px solid var(--ligne); border-radius: 4px; padding: 0 5px; }
+  .menu-list hr { border: 0; border-top: 1px solid var(--ligne); margin: 4px 2px; width: auto; }
 
   /* ---------- Zone principale ---------- */
   main { display: flex; flex-direction: column; min-width: 0; height: 100vh; }
@@ -129,6 +145,7 @@
   footer.nav button { border: 1px solid var(--ligne); background: var(--fond); border-radius: 10px; padding: 9px 18px; font-size: 15px; }
   footer.nav .next { font-family: var(--font-titre); background: var(--rouge); color: #fff; border-color: var(--rouge); font-weight: 600; }
   .hint { flex: 1; text-align: center; font-size: 12px; color: var(--gris); }
+  .hint kbd { font-family: var(--mono); font-size: 10.5px; border: 1px solid var(--ligne); border-radius: 4px; padding: 0 4px; }
   .saved { font-size: 12px; color: var(--ok); opacity: 0; transition: opacity .3s; }
   .saved.show { opacity: 1; }
   .disk { border: 1px solid var(--ligne); background: var(--fond); border-radius: 999px; padding: 4px 11px; font-size: 12.5px; white-space: nowrap; }
@@ -142,6 +159,11 @@
   .rec.warn { color: var(--warn); border-color: #f0cf9c; background: #fff7ea; }
   .rec.on.warn { color: #fff; background: var(--rouge-fonce); }
   @keyframes rec { 50% { opacity: .2; } }
+  .rec-group { display: inline-flex; align-items: center; gap: 6px; }
+  .transcr { border: 0; background: none; padding: 0; font-size: 12px; color: var(--gris); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .transcr:hover { color: var(--rouge); text-decoration: underline; }
+  .transcr.ok { color: var(--ok); }
+  .transcr.warn { color: var(--warn); }
   .disk-banner { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 9px 28px; background: #fff7ea; border-bottom: 1px solid #f0cf9c; color: #6b4e00; font-size: 13.5px; }
   .disk-banner.err { background: var(--rouge-clair); border-color: var(--filet); color: var(--rouge-fonce); }
   .disk-banner b { font-weight: 600; }
@@ -215,7 +237,7 @@
 <body>
 <aside>
   <div class="brand">
-    <div class="logo"><img src="img/logo-decideom.png" alt="DecideOm"><span class="client" id="client"></span></div>
+    <div class="logo"><a class="accueil" href="/" title="Retour à l'accueil de Greffier (liste des ateliers)" onclick="return /^https?:$/.test(location.protocol)"><img src="img/logo-decideom.png" alt="DecideOm"></a><span class="client" id="client"></span></div>
     <h1 id="atelier"></h1>
     <div class="progress"><i id="bar"></i></div>
     <div class="progress-label" id="barLabel"></div>
@@ -226,17 +248,22 @@
     <label>Participants <input id="metaPart" placeholder="Noms, fonctions…"></label>
   </div>
   <div class="side-actions">
-    <button class="primary" id="btnZip" title="notes.md + photos + sauvegarde, dans un .zip">⬇ Exporter l'atelier (.zip)</button>
-    <button class="wide" id="btnCr" title="Rédiger le compte rendu avec une IA (Gemini, Claude…) puis le mettre en page en PDF">📝 Compte rendu (IA → PDF)</button>
-    <button class="wide" id="btnPdf" title="Notes brutes imprimables, avec les photos : choisir « Enregistrer en PDF »">🖨 Notes brutes PDF</button>
-    <button id="btnProj" title="Ouvrir l'écran projeté dans une 2e fenêtre (P)">📽 Écran projeté</button>
-    <button id="btnSynth" title="Synthèse (S)">Synthèse</button>
-    <button id="btnMd" title="Notes seules, en Markdown">Exporter .md</button>
-    <button id="btnJson" title="Sauvegarde complète avec photos, réimportable">Sauvegarde .json</button>
-    <button id="btnImport" title="Recharger une sauvegarde .json">Importer .json</button>
-    <button id="btnHelp">Raccourcis</button>
-    <button class="wide" id="btnReset" title="Vider toutes les réponses et les photos">Nouvelle session</button>
-    <button class="wide" id="btnStop" hidden title="Enregistre ce qui est en attente puis arrête Greffier">⏻ Arrêter l'application</button>
+    <button class="primary" id="btnCr" title="Rédiger le compte rendu avec une IA (Claude, Gemini…) puis le mettre en page en PDF">📝 Compte rendu</button>
+    <button id="btnSynth" title="Décisions, actions, risques… (S)">Synthèse</button>
+    <div class="menu up">
+      <button data-menu title="Exports, import, session">⋯ Plus</button>
+      <div class="menu-list" hidden>
+        <button id="btnZip" title="notes.md + photos + sauvegarde, dans un .zip">⬇ Exporter l'atelier (.zip)</button>
+        <button id="btnPdf" title="Notes brutes imprimables, avec les photos : choisir « Enregistrer en PDF »">🖨 Notes brutes (PDF)</button>
+        <button id="btnMd" title="Notes seules, en Markdown">⬇ Notes (.md)</button>
+        <button id="btnJson" title="Sauvegarde complète avec photos, réimportable">⬇ Sauvegarde (.json)</button>
+        <hr>
+        <button id="btnImport" title="Recharger une sauvegarde .json">Importer une sauvegarde (.json)</button>
+        <hr>
+        <button class="danger" id="btnReset" title="Vider toutes les réponses et les photos">Nouvelle session…</button>
+        <button class="danger" id="btnStop" hidden title="Enregistre ce qui est en attente puis arrête Greffier">⏻ Arrêter l'application</button>
+      </div>
+    </div>
     <div class="warn" id="warn" hidden></div>
     <a class="maj" id="maj" hidden target="_blank" rel="noopener"></a>
   </div>
@@ -246,16 +273,27 @@
   <header class="top">
     <button class="icon-btn" id="btnSide" title="Afficher / masquer le sommaire (M)">☰</button>
     <div class="crumb" id="crumb"></div>
-    <button class="disk wait" id="diskBadge" title="Sauvegarde sur disque">💾 …</button>
-    <button class="rec" id="btnRec" hidden title="Enregistrer le son de l'atelier, pour une transcription locale (sorties/audio/)">🎙 Enregistrer</button>
-    <span class="proj-badge" id="projBadge" hidden>📽 projection</span>
     <div class="chrono" id="chrono" title="Chronomètre de la partie en cours / temps prévu jusqu'à la fin de la section"></div>
     <span class="pos" id="pos"></span>
+    <div class="rec-group">
+      <button class="rec" id="btnRec" hidden title="Enregistrer le son de l'atelier, pour une transcription locale (sorties/audio/)">🎙 Enregistrer</button>
+      <button class="transcr" id="recTranscr" hidden title="Avancement de la transcription : cliquer pour ouvrir le compte rendu"></button>
+    </div>
     <button class="icon-btn" id="btnPage" title="Nouvelle page libre, pour un sujet hors questions (N)">＋ Page</button>
-    <button class="icon-btn" id="btnDelPage" hidden title="Supprimer cette page (Suppr ; ou Retour arrière dans une page vide)">🗑</button>
-    <button class="icon-btn" id="btnRel" title="Afficher / masquer les relances (R)">↳</button>
-    <button class="icon-btn" id="btnClient" title="Masquer les réponses à l'écran projeté (C)">👁</button>
-    <button class="icon-btn" id="btnFull" title="Plein écran (F)">⛶</button>
+    <button class="icon-btn" id="btnProj" title="Ouvrir l'écran projeté dans une 2e fenêtre (P)">📽 Projeter</button>
+    <span class="proj-badge" id="projBadge" hidden>projection ouverte</span>
+    <button class="disk wait" id="diskBadge" title="Sauvegarde sur disque">💾</button>
+    <div class="menu">
+      <button class="icon-btn" data-menu title="Affichage et page">⋯</button>
+      <div class="menu-list" hidden>
+        <button id="btnRel" class="check">Relances visibles <kbd>R</kbd></button>
+        <button id="btnClient" class="check">Masquer les réponses à l'écran projeté <kbd>C</kbd></button>
+        <button id="btnFull">Plein écran <kbd>F</kbd></button>
+        <button id="btnDelPage" hidden class="danger">Supprimer cette page <kbd>Suppr</kbd></button>
+        <hr>
+        <button id="btnHelp">Raccourcis clavier <kbd>?</kbd></button>
+      </div>
+    </div>
   </header>
   <div class="disk-banner" id="diskBanner" hidden></div>
 
@@ -279,13 +317,13 @@
   <footer class="nav">
     <button id="prev">← Précédente</button>
     <span class="saved" id="saved">✓ enregistré</span>
-    <span class="hint">←/→ naviguer · Entrée saisir · Échap sortir · Alt+1…5 tags · N page libre · I photo · P projection · S synthèse · ? aide</span>
+    <span class="hint">←/→ naviguer · Entrée saisir · Échap sortir · <kbd>?</kbd> tous les raccourcis</span>
     <button class="next" id="next">Suivante →</button>
   </footer>
 </main>
 
 <div class="proj-brand"><span class="num" id="projPos"></span><img src="img/logo-decideom.png" alt="DecideOm"><span class="ctx" id="projClient"></span></div>
-<div class="proj-wait" id="projWait">Écran projeté : en attente de la fenêtre d'animation…<br>(ouvre-le avec le bouton « 📽 Écran projeté »)</div>
+<div class="proj-wait" id="projWait">Écran projeté : en attente de la fenêtre d'animation…<br>(ouvre-le avec le bouton « 📽 Projeter »)</div>
 
 <div class="overlay" id="synth"><div class="panel" id="synthPanel"></div></div>
 <div class="overlay" id="lightbox"><img id="lightboxImg" alt=""></div>
@@ -927,6 +965,17 @@
     sendProjection();
   };
   $("btnFull").onclick = () => (document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen());
+  // Menus ⋯ : un clic sur le bouton ouvre ou ferme, un choix ou un clic ailleurs ferme.
+  const fermerMenus = (sauf) => document.querySelectorAll(".menu-list").forEach((l) => { if (l !== sauf) l.hidden = true; });
+  document.querySelectorAll("[data-menu]").forEach((b) => (b.onclick = (e) => {
+    e.stopPropagation();
+    const l = b.nextElementSibling;
+    fermerMenus(l);
+    l.hidden = !l.hidden;
+  }));
+  document.querySelectorAll(".menu-list").forEach((l) => l.addEventListener("click", (e) => { if (e.target.closest("button")) l.hidden = true; }));
+  document.addEventListener("click", () => fermerMenus());
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") fermerMenus(); }, true);
   if (pref("hideRel") === "1") document.body.classList.add("hide-relances");
   $("btnRel").classList.toggle("on", !document.body.classList.contains("hide-relances"));
 
@@ -983,8 +1032,8 @@
     if (st2.error) { b.className = "disk err"; b.textContent = "⚠ Sauvegarde disque en échec"; b.title = st2.error; }
     else if (saver.active()) {
       b.className = st2.pending ? "disk wait" : "disk ok";
-      b.textContent = st2.pending ? "💾 enregistrement…" : st2.lastSave ? `💾 ${ago(st2.lastSave)}` : "💾 prêt";
-      b.title = "Sauvegarde continue dans " + where;
+      b.textContent = st2.pending ? "💾 …" : "💾 ✓";
+      b.title = "Sauvegarde continue dans " + where + (st2.lastSave ? ` : dernier enregistrement ${ago(st2.lastSave)}` : "");
     } else { b.className = "disk warn"; b.textContent = "⚠ Navigateur seulement"; b.title = "Les notes ne sont pas encore enregistrées sur le disque"; }
     renderBanner();
   }
@@ -1091,10 +1140,28 @@
     b.classList.toggle("on", st.actif);
     b.classList.toggle("warn", !!st.erreur);
     b.textContent = st.actif ? fmt(total * 1000) : total ? `🎙 Reprendre (${fmt(total * 1000)})` : "🎙 Enregistrer";
-    const transcr = recInfo && recInfo.etat && recInfo.etat.etape ? "\n" + recInfo.etat.etape : "";
-    b.title = (st.erreur ? "⚠ " + st.erreur : st.actif ? "Enregistrement en cours : cliquer pour mettre en pause" : "Enregistrer le son de l'atelier, pour une transcription locale (sorties/audio/)") + transcr;
-    if (st.actif && Date.now() - recRelu > 15000) { recRelu = Date.now(); majDureeEnregistree(); }   // avancement de la transcription
+    b.title = st.erreur ? "⚠ " + st.erreur : st.actif ? "Enregistrement en cours : cliquer pour mettre en pause" : "Enregistrer le son de l'atelier, pour une transcription locale (sorties/audio/)";
+    renderTranscr();
+    // avancement de la transcription : relu pendant l'enregistrement et tant qu'elle tourne
+    const transcrEnCours = recInfo && recInfo.etat && recInfo.etat.enCours;
+    if ((st.actif || transcrEnCours) && Date.now() - recRelu > 10000) { recRelu = Date.now(); majDureeEnregistree(); }
   }
+  // À côté du bouton d'enregistrement : où en est la transcription (clic : page compte rendu).
+  function renderTranscr() {
+    const t = $("recTranscr"), r = recInfo, e = (r && r.etat) || {};
+    if (!r || !r.whisper || !r.segments.length) { t.hidden = true; return; }
+    const reste = r.segments.some((sg) => !sg.transcrit && !sg.enCours);
+    let txt, cls = "";
+    if (e.erreur) { txt = "⚠ transcription"; cls = "warn"; }
+    else if (e.enCours) txt = `transcription ${e.pourcent || 0} %`;
+    else if (r.transcription && !reste) { txt = "✓ transcrit"; cls = "ok"; }
+    else txt = "à transcrire";
+    t.textContent = txt;
+    t.className = "transcr " + cls;
+    t.title = (e.erreur || e.etape || "Avancement de la transcription") + " : cliquer pour ouvrir le compte rendu";
+    t.hidden = false;
+  }
+  $("recTranscr").onclick = () => window.open("cr.html", SLUG + "-cr");
   const majDureeEnregistree = () => fetch("api/audio").then((r) => r.json()).then((r) => {
     recInfo = r;
     recAvant = r.segments.filter((sg) => !recorder.status.actif || sg.id !== recorder.status.seg).reduce((n, sg) => n + sg.secondes, 0);   // segments précédents seulement
@@ -1110,7 +1177,7 @@
     }
     if (!recConsenti) {
       const ok = await ask("Enregistrer le son de l'atelier ?",
-        "Les participants doivent être informés de l'enregistrement et donner leur accord.\n\nLe son est enregistré sur ce poste (dossier sorties/audio/ de l'atelier), puis transcrit sur ce poste depuis la page « Compte rendu » : rien n'est envoyé sur internet.",
+        "Les participants doivent être informés de l'enregistrement et donner leur accord.\n\nLe son est enregistré sur ce poste (dossier sorties/audio/ de l'atelier), puis transcrit sur ce poste au fil de l'atelier : rien n'est envoyé sur internet.",
         "Ils sont d'accord : enregistrer", "Annuler");
       if (!ok) return;
       recConsenti = true;

@@ -109,9 +109,9 @@ Variables d'environnement : `GREFFIER_WHISPER` (chemin de `whisper-cli`), `GREFF
 ## Le compte rendu par IA
 Un prompt commun ([`prompt-compte-rendu.md`](prompt-compte-rendu.md)) et un modèle ([`modele-compte-rendu.md`](modele-compte-rendu.md), ou [`modele-compte-rendu-libre.md`](modele-compte-rendu-libre.md) pour des notes libres) imposent la structure du CR, interdisent d'inventer et font marquer **[À CONFIRMER]** ce qui est ambigu.
 
-1. Page d'atelier → **📝 Compte rendu (IA → PDF)** :
+1. Page d'atelier → **📝 Compte rendu** (la page suit 3 étapes : transcription s'il y a un enregistrement, rédaction, relecture et PDF) :
    - **✨ Rédiger avec Claude** (si [Claude Code](https://claude.com/claude-code) est installé et connecté) : Greffier lance `claude -p` avec l'abonnement Claude, sans clé API. Claude ne peut que lire les fichiers de `sorties/` (pour décrire les photos) ; le CR s'affiche dans la page et est enregistré dans `sorties/CR-<atelier>.md`. Compter 1 à 3 minutes. Claude Code introuvable alors qu'il est installé : indiquer son chemin dans la variable `GREFFIER_CLAUDE`.
-   - sinon **🤖 Copier pour l'IA** → coller dans Gemini, ChatGPT ou Claude, puis coller la réponse dans la page.
+   - sinon **🤖 Copier pour une autre IA** → coller dans Gemini, ChatGPT ou Claude, puis coller la réponse dans la page.
 2. Aperçu A4 avec les photos, [À CONFIRMER] surlignés et comptés.
 3. Corriger, puis **🖨 Imprimer / PDF**.
 
