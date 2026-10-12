@@ -24,10 +24,10 @@ Dans les [**Releases**](../../releases), prendre le fichier correspondant à son
 
 ## Utiliser
 1. **Préparer l'atelier** : un dossier avec un fichier `questions.md` (partir de [`exemple/atelier-exemple`](exemple/atelier-exemple/questions.md)).
-2. **Double-clic sur Greffier** : une fenêtre de console (à garder ouverte) et une page dans le navigateur s'ouvrent.
+2. **Double-clic sur Greffier** : une fenêtre de console (à garder ouverte), une page dans le navigateur et une **icône Greffier dans la zone de notification** (à côté de l'horloge) s'ouvrent. Navigateur fermé par erreur ? Clic sur l'icône : la page de l'atelier en cours se rouvre.
 3. **Choisir l'atelier** : dans la liste, avec **📂 Parcourir…** (sélecteur de dossier du système), en collant le chemin, ou en glissant le dossier sur Greffier.
 4. **Animer** : question à l'écran, saisie de la réponse, tags (Décision, Action, Risque, À creuser, Hors périmètre), photos (bouton, glisser-déposer, Ctrl+V), **écran projeté** (touche P), synthèse (touche S). Un sujet imprévu : **page libre** (touche N).
-5. **Arrêter** : bouton **⏻ Arrêter l'application** (ou fermer la fenêtre de console).
+5. **Arrêter** : bouton **⏻ Arrêter l'application**, menu de l'icône → **Arrêter Greffier**, ou fermer la fenêtre de console.
 
 Mode opératoire complet : [`docs/mode-operatoire.md`](docs/mode-operatoire.md).
 
@@ -106,7 +106,7 @@ go run . --generer exemple/atelier-exemple   # générer les fichiers d'un ateli
 | `maj.go` | avis de nouvelle version (API GitHub, dernière release) |
 | `app/` | page d'atelier, page CR, moteur de notes (`notes-core.js`), charte (`theme.css`), mise en page A4 (`document.css`) |
 | `docs/charte-decideom.md` | charte graphique DecideOm appliquée |
-| `winres/`, `rsrc_windows_*.syso` | icône et propriétés de l'exe Windows (régénérer : `go run github.com/tc-hib/go-winres@v0.3.3 simply --icon winres/icon.png --manifest cli --arch amd64,arm64`) |
+| `winres/`, `rsrc_windows_*.syso` | icône et propriétés de l'exe Windows ; `tray.ico`, `tray.png` : icône de la zone de notification (barre des menus sur Mac) (régénérer : `go run github.com/tc-hib/go-winres@v0.3.3 simply --icon winres/icon.png --manifest cli --arch amd64,arm64`) |
 | `.github/workflows/binaires.yml` | GitHub Action : tests et binaires à chaque push ; *Release* à chaque étiquette `v*` |
 
 **Publier une version** : `git tag v1.0.0 && git push --tags` → l'Action crée la *Release* avec les binaires.

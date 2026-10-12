@@ -43,7 +43,7 @@ Les photos sont réduites automatiquement (environ 300 Ko), enregistrées dans `
 - **Garder la fenêtre de Greffier ouverte** : c'est elle qui écrit sur le disque. Si le témoin passe au rouge, cliquer dessus pour voir le message.
 - **5 dernières minutes** : touche **S**. La synthèse (décisions, actions, risques) s'affiche aussi à l'écran projeté, et on la fait valider en séance.
 
-**En fin de séance** : **⏻ Arrêter l'application** (en bas de la barre latérale). Les notes restent dans `sorties/`.
+**En fin de séance** : **⏻ Arrêter l'application** (en bas de la barre latérale) ou, depuis l'icône Greffier de la zone de notification, **Arrêter Greffier**. Les notes restent dans `sorties/`.
 
 ## Après l'atelier
 1. **Le soir même** : rien à exporter, `sorties/` contient déjà `notes.md`, `photos/` et `session.json`.

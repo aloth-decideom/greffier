@@ -1,5 +1,6 @@
 # Binaires compilés (publiés par la GitHub Action « Binaires greffier »)
 dist/
+/greffier
 
 # Dépendances (réinstallables : cd marp && npm install)
 node_modules/

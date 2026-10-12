@@ -81,6 +81,9 @@ func main() {
 	fmt.Printf("\n  Greffier DecideOm %s\n  ──────────────────────────────\n", version)
 	fmt.Printf("  Page : %s\n", base+"/")
 	fmt.Println("  Laisse cette fenêtre ouverte pendant l'atelier : la fermer arrête la sauvegarde sur disque.")
+	if iconeDisponible {
+		fmt.Println("  Navigateur fermé ? Icône Greffier dans la zone de notification : rouvrir la page, arrêter.")
+	}
 	fmt.Println()
 
 	url := base + "/"
@@ -103,14 +106,21 @@ func main() {
 	server := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-srv.Arret
-		logf("Arrêt demandé depuis la page : fin des écritures en cours…")
+		logf("Arrêt demandé : fin des écritures en cours…")
+		quitterIcone()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = server.Shutdown(ctx) // n'interrompt pas une sauvegarde en cours
 	}()
-	if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		fatal(err.Error())
-	}
+	fini := make(chan struct{})
+	go func() {
+		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fatal(err.Error())
+		}
+		close(fini)
+	}()
+	lancerIcone(srv) // boucle de l'icône de notification, sur le fil principal (exigé par macOS)
+	<-fini
 	logf("Application arrêtée. Les notes sont enregistrées dans le dossier sorties/ de l'atelier.")
 	time.Sleep(1200 * time.Millisecond) // le temps de lire le message avant que la fenêtre se ferme
 }

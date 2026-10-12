@@ -37,7 +37,9 @@ type Serveur struct {
 	mu        sync.Mutex        // une écriture disque à la fois
 	ateliers  map[string]string // slug → dossier
 	amu       sync.Mutex
-	Arret     chan struct{} // fermé quand la page demande l'arrêt de l'application
+	dernier   [2]string          // dernier atelier ouvert : adresse de sa page, titre (icône de notification)
+	ouverture func(titre string) // prévient l'icône de notification qu'un atelier est ouvert
+	Arret     chan struct{}      // fermé quand la page ou l'icône demande l'arrêt de l'application
 	arretOnce sync.Once
 	Maj       verificateurMaj
 }
@@ -259,7 +261,30 @@ func (s *Serveur) arreter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-	s.arretOnce.Do(func() { close(s.Arret) })
+	s.demanderArret()
+}
+
+func (s *Serveur) demanderArret() { s.arretOnce.Do(func() { close(s.Arret) }) }
+
+// adressePage : la page du dernier atelier ouvert, sinon l'accueil.
+func (s *Serveur) adressePage() string {
+	s.amu.Lock()
+	defer s.amu.Unlock()
+	if s.dernier[0] != "" {
+		return s.origin + s.dernier[0]
+	}
+	return s.origin + "/"
+}
+
+// siOuverture : f est appelée à chaque ouverture d'atelier (et tout de suite s'il y en a déjà un).
+func (s *Serveur) siOuverture(f func(titre string)) {
+	s.amu.Lock()
+	s.ouverture = f
+	titre := s.dernier[1]
+	s.amu.Unlock()
+	if titre != "" {
+		f(titre)
+	}
 }
 
 // preparer : vérifie l'atelier, génère ses fichiers, le mémorise et renvoie l'adresse de sa page.
@@ -279,9 +304,19 @@ func (s *Serveur) preparer(dir string) (string, []string, error) {
 	if err != nil {
 		return "", nil, fmt.Errorf("écriture impossible dans %s : %v", abs, err)
 	}
+	url := "/a/" + a.Slug + "/atelier.html"
+	titre := a.Meta["atelier"]
+	if titre == "" {
+		titre = filepath.Base(abs)
+	}
 	s.amu.Lock()
 	s.ateliers[a.Slug] = abs
+	s.dernier = [2]string{url, titre}
+	ouverture := s.ouverture
 	s.amu.Unlock()
+	if ouverture != nil {
+		ouverture(titre)
+	}
 	ajouterRecent(abs)
 	_, nq := a.QuestionCount()
 	quoi := fmt.Sprintf("%d questions", nq)
@@ -289,7 +324,7 @@ func (s *Serveur) preparer(dir string) (string, []string, error) {
 		quoi = "notes libres"
 	}
 	logf("Atelier ouvert : %s (%s) — sauvegarde dans %s", abs, quoi, filepath.Join(abs, "sorties"))
-	return "/a/" + a.Slug + "/atelier.html", append(warnings, notes...), nil
+	return url, append(warnings, notes...), nil
 }
 
 // dossierDe retrouve le dossier d'un atelier (y compris après un redémarrage, via les récents).

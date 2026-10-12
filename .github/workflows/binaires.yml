@@ -1,6 +1,7 @@
 # Compile Greffier pour Windows, macOS et Linux.
 # - À chaque push sur main : binaires disponibles dans l'onglet Actions (artefact).
 # - À chaque étiquette v* (ex. git tag v1.0.0 && git push --tags) : release GitHub avec les binaires.
+# Les binaires macOS sont compilés sur un Mac : l'icône de la barre des menus demande cgo.
 name: Binaires greffier
 
 on:
@@ -13,8 +14,12 @@ on:
 permissions:
   contents: write   # nécessaire pour publier la release
 
+env:
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}
+
 jobs:
   compiler:
+    name: Windows et Linux
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,9 +36,56 @@ jobs:
           go test ./...
 
       - name: Compiler
-        env:
-          VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('dev-{0}', github.sha) }}
-        run: ./compiler.sh "$VERSION"
+        run: ./compiler.sh "$VERSION" "windows linux"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaires-windows-linux
+          path: dist/greffier-*
+          if-no-files-found: error
+
+  compiler-macos:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Vérifier (avec l'icône de la barre des menus)
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Compiler
+        run: ./compiler.sh "$VERSION" darwin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaires-macos
+          path: dist/greffier-*
+          if-no-files-found: error
+
+  rassembler:
+    name: Rassembler et publier
+    needs: [compiler, compiler-macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binaires-*
+          path: dist
+          merge-multiple: true
+
+      - name: Sommes de contrôle
+        run: |
+          cd dist
+          chmod +x greffier-*
+          sha256sum -- greffier-* > SHA256SUMS.txt
+          ls -l
 
       - uses: actions/upload-artifact@v4
         with:
@@ -45,4 +97,4 @@ jobs:
         if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" dist/* --title "Greffier ${{ github.ref_name }}" --generate-notes
+        run: gh release create "${{ github.ref_name }}" dist/* --repo "${{ github.repository }}" --title "Greffier ${{ github.ref_name }}" --generate-notes
