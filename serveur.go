@@ -6,6 +6,9 @@ package main
 //   /api/parcourir          sélecteur de dossier natif du système
 //   /api/ouvrir             prépare un atelier et renvoie l'adresse de sa page
 //   /api/notes-libres       crée un dossier de notes libres (sans questions) et l'ouvre
+//   /api/montrer            ouvre le dossier d'un atelier de la liste dans l'explorateur de fichiers
+//   /api/oublier            retire un atelier des récents (le dossier reste sur le disque)
+//   /api/supprimer          supprime définitivement le dossier d'un atelier de la liste
 //   /api/version            version courante et éventuelle nouvelle version sur GitHub
 //   /a/<slug>/…             page d'atelier (fichiers intégrés + questions.js lu en direct)
 //   /a/<slug>/api/…         sauvegarde sur disque dans <atelier>/sorties/
@@ -57,6 +60,9 @@ func (s *Serveur) Handler() http.Handler {
 	mux.HandleFunc("/api/ouvrir", s.ouvrir)
 	mux.HandleFunc("/api/arreter", s.arreter)
 	mux.HandleFunc("/api/notes-libres", s.notesLibres)
+	mux.HandleFunc("/api/montrer", s.montrer)
+	mux.HandleFunc("/api/oublier", s.oublier)
+	mux.HandleFunc("/api/supprimer", s.supprimer)
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, s.Maj.Info()) })
 	mux.HandleFunc("/a/", s.atelier)
 	mux.HandleFunc("/static/", s.statique) // charte, polices, logo pour la page de choix
@@ -154,16 +160,15 @@ func decrire(dir string, recent bool) infoAtelier {
 	return info
 }
 
-func (s *Serveur) listeAteliers(w http.ResponseWriter, r *http.Request) {
+// ateliersConnus : les récents (encore présents), puis les ateliers trouvés à proximité.
+func ateliersConnus() (recents, trouves []string) {
 	vus := map[string]bool{}
-	var liste []infoAtelier
 	for _, d := range chargerRecents() {
 		if _, err := os.Stat(filepath.Join(d, "questions.md")); err == nil && !vus[d] {
 			vus[d] = true
-			liste = append(liste, decrire(d, true))
+			recents = append(recents, d)
 		}
 	}
-	var trouves []string
 	for _, base := range dossiersDeRecherche() {
 		entries, _ := os.ReadDir(base)
 		for _, e := range entries {
@@ -177,13 +182,105 @@ func (s *Serveur) listeAteliers(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Strings(trouves)
+	return recents, trouves
+}
+
+func (s *Serveur) listeAteliers(w http.ResponseWriter, r *http.Request) {
+	recents, trouves := ateliersConnus()
+	liste := []infoAtelier{}
+	for _, d := range recents {
+		liste = append(liste, decrire(d, true))
+	}
 	for _, d := range trouves {
 		liste = append(liste, decrire(d, false))
 	}
-	if liste == nil {
-		liste = []infoAtelier{}
-	}
 	writeJSON(w, http.StatusOK, map[string]any{"ateliers": liste, "systeme": nomSysteme(), "dossierNotes": dossierNotesParDefaut()})
+}
+
+// atelierDeLaListe lit le chemin envoyé par la page et vérifie qu'il s'agit bien d'un atelier
+// affiché dans la liste : les actions du menu « ⋯ » ne touchent à rien d'autre.
+func (s *Serveur) atelierDeLaListe(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if r.Method != http.MethodPost || !s.memeOrigine(r) {
+		erreur(w, http.StatusForbidden, "refusé")
+		return "", false
+	}
+	var req struct{ Chemin string }
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req); err != nil || req.Chemin == "" {
+		erreur(w, http.StatusBadRequest, "chemin manquant")
+		return "", false
+	}
+	recents, trouves := ateliersConnus()
+	for _, d := range append(recents, trouves...) {
+		if d == req.Chemin {
+			return d, true
+		}
+	}
+	erreur(w, http.StatusOK, "cet atelier n'est plus dans la liste : recharge la page")
+	return "", false
+}
+
+func (s *Serveur) montrer(w http.ResponseWriter, r *http.Request) {
+	dir, ok := s.atelierDeLaListe(w, r)
+	if !ok {
+		return
+	}
+	if err := ouvrirDossier(dir); err != nil {
+		erreur(w, http.StatusOK, "impossible d'ouvrir le dossier : "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Serveur) oublier(w http.ResponseWriter, r *http.Request) {
+	dir, ok := s.atelierDeLaListe(w, r)
+	if !ok {
+		return
+	}
+	if err := retirerRecent(dir); err != nil {
+		erreur(w, http.StatusOK, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Serveur) supprimer(w http.ResponseWriter, r *http.Request) {
+	dir, ok := s.atelierDeLaListe(w, r)
+	if !ok {
+		return
+	}
+	// Garde-fou : jamais un dossier racine, le dossier personnel ou un dossier où l'on cherche les ateliers.
+	home, _ := os.UserHomeDir()
+	interdits := append(dossiersDeRecherche(), home)
+	for _, x := range interdits {
+		if x != "" && filepath.Clean(x) == filepath.Clean(dir) {
+			erreur(w, http.StatusOK, "suppression refusée pour ce dossier : "+dir)
+			return
+		}
+	}
+	if filepath.Dir(dir) == dir {
+		erreur(w, http.StatusOK, "suppression refusée pour ce dossier : "+dir)
+		return
+	}
+	s.mu.Lock() // pas pendant une écriture de notes
+	err := os.RemoveAll(dir)
+	s.mu.Unlock()
+	s.amu.Lock()
+	for slug, d := range s.ateliers {
+		if d == dir {
+			delete(s.ateliers, slug) // une page encore ouverte ne recrée pas le dossier
+			if s.dernier[0] == "/a/"+slug+"/atelier.html" {
+				s.dernier = [2]string{} // l'icône de notification ramène à l'accueil
+			}
+		}
+	}
+	s.amu.Unlock()
+	_ = retirerRecent(dir)
+	if err != nil {
+		erreur(w, http.StatusOK, "suppression incomplète : "+err.Error())
+		return
+	}
+	logf("Atelier supprimé : %s", dir)
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func (s *Serveur) parcourir(w http.ResponseWriter, r *http.Request) {

@@ -38,7 +38,23 @@
 
   h2 { font-family: var(--font-titre); font-weight: 500; color: var(--encre); font-size: 18px; margin: 0 0 14px; padding-bottom: 8px; border-bottom: 1px solid var(--filet); }
   .liste { display: grid; gap: 12px; margin-bottom: 30px; }
-  .carte { display: grid; grid-template-columns: 1fr auto; gap: 14px; align-items: center; padding: 16px 20px; border-radius: 12px; }
+  .carte { position: relative; display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 16px 12px 16px 20px; border-radius: 12px; }
+  .points { border: 0; background: none; width: 36px; height: 36px; border-radius: 8px; font-size: 20px; line-height: 1; color: var(--gris); }
+  .points:hover, .points[aria-expanded="true"] { background: var(--fond-2); color: var(--encre); }
+  .menu { position: absolute; right: 12px; top: calc(100% - 10px); z-index: 10; min-width: 250px; padding: 6px; background: var(--fond); border: 1px solid var(--ligne); border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.14); }
+  .menu button { display: block; width: 100%; text-align: left; border: 0; background: none; padding: 9px 12px; border-radius: 6px; font-size: 14px; }
+  .menu button:hover { background: var(--fond-2); }
+  .menu button.danger { color: var(--rouge-fonce); }
+  .menu button.danger:hover { background: var(--rouge-clair); }
+  .menu hr { border: 0; border-top: 1px solid var(--filet); margin: 5px 4px; }
+  dialog.confirm { border: 0; border-radius: 14px; padding: 24px 26px; max-width: 480px; width: calc(100% - 32px); box-shadow: 0 16px 48px rgba(0,0,0,.25); color: var(--texte-fort); }
+  dialog.confirm::backdrop { background: rgba(0,0,0,.35); }
+  dialog.confirm h3 { margin: 0 0 10px; font-family: var(--font-titre); font-weight: 500; color: var(--rouge-fonce); font-size: 19px; }
+  dialog.confirm p { margin: 0 0 10px; font-size: 14px; line-height: 1.55; }
+  dialog.confirm code { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+  dialog.confirm .boutons { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+  .btn.danger { background: var(--rouge-fonce); }
+  .btn.danger:hover { filter: brightness(.9); background: var(--rouge-fonce); }
   .carte .t { font-family: var(--font-titre); color: var(--encre); font-size: 16px; font-weight: 500; }
   .carte .t b { color: var(--rouge); font-weight: 600; margin-right: 8px; }
   .carte .m { font-size: 13px; color: var(--texte); margin-top: 3px; }
@@ -66,7 +82,7 @@
   .maj a.btn { color: #fff; text-decoration: none; padding: 8px 14px; font-size: 14px; }
   [hidden] { display: none !important; }
   .version { margin-top: 26px; font-size: 12px; color: var(--gris); }
-  @media (max-width: 700px) { .actions, .libre .champs { grid-template-columns: 1fr; } .carte { grid-template-columns: 1fr; } }
+  @media (max-width: 700px) { .actions, .libre .champs { grid-template-columns: 1fr; } .carte { grid-template-columns: 1fr auto; } .carte > div:first-child { grid-column: 1 / -1; } }
 </style>
 </head>
 <body>
@@ -106,6 +122,13 @@
   </div>
   <div class="version" id="version"></div>
 </main>
+<dialog class="confirm" id="confirmSuppr">
+  <h3>Supprimer définitivement ?</h3>
+  <p>Le dossier <b id="supprNom"></b> et <b>tout son contenu</b> (questions, notes, photos, historique) seront effacés du disque :</p>
+  <p><code id="supprChemin"></code></p>
+  <p>Ils ne passent pas par la corbeille : <b>cette action est irréversible</b>.</p>
+  <div class="boutons"><button class="btn sec" id="supprNon">Annuler</button><button class="btn danger" id="supprOui">Supprimer définitivement</button></div>
+</dialog>
 <script>
 (function () {
   "use strict";
@@ -204,27 +227,98 @@
   $("ouvrirChemin").onclick = () => ouvrir($("chemin").value.trim(), $("ouvrirChemin"));
   $("chemin").addEventListener("keydown", (e) => { if (e.key === "Enter") $("ouvrirChemin").click(); });
 
-  fetch("/api/ateliers").then((r) => r.json()).then((d) => {
+  // Menu « ⋯ » de chaque atelier : un seul ouvert à la fois, fermé au clic ailleurs ou par Échap.
+  let menuOuvert = null;
+  function fermerMenu() {
+    if (!menuOuvert) return;
+    menuOuvert.menu.remove();
+    menuOuvert.bouton.setAttribute("aria-expanded", "false");
+    menuOuvert = null;
+  }
+  document.addEventListener("click", (e) => { if (menuOuvert && !menuOuvert.menu.contains(e.target) && e.target !== menuOuvert.bouton) fermerMenu(); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") fermerMenu(); });
+
+  async function action(url, a) {
+    try {
+      const r = await post(url, { chemin: a.chemin });
+      if (r.erreur) { msg(r.erreur); return false; }
+      return true;
+    } catch (e) { msg("L'application ne répond pas : est-elle toujours lancée ?"); return false; }
+  }
+
+  function ouvrirMenu(a, carte, bouton) {
+    const deja = menuOuvert && menuOuvert.bouton === bouton;
+    fermerMenu();
+    if (deja) return;
+    const m = document.createElement("div");
+    m.className = "menu"; m.setAttribute("role", "menu");
+    const item = (texte, fn, classe) => {
+      const b = document.createElement("button");
+      b.textContent = texte; b.setAttribute("role", "menuitem");
+      if (classe) b.className = classe;
+      b.onclick = () => { fermerMenu(); fn(); };
+      m.appendChild(b);
+    };
+    item("📂 Ouvrir le dossier", async () => {
+      if (await action("/api/montrer", a)) msg("Dossier ouvert dans l'explorateur de fichiers (il peut être derrière cette fenêtre).", "info");
+    });
+    if (a.recent) item("✕ Retirer des récents", async () => {
+      if (await action("/api/oublier", a)) { msg(`« ${a.titre || a.nom} » retiré des récents. Le dossier reste sur le disque.`, "info"); chargerListe(); }
+    });
+    m.appendChild(document.createElement("hr"));
+    item("🗑 Supprimer définitivement…", () => confirmerSuppression(a), "danger");
+    carte.appendChild(m);
+    bouton.setAttribute("aria-expanded", "true");
+    menuOuvert = { menu: m, bouton };
+    m.querySelector("button").focus();
+  }
+
+  let aSupprimer = null;
+  function confirmerSuppression(a) {
+    aSupprimer = a;
+    $("supprNom").textContent = a.titre || a.nom;
+    $("supprChemin").textContent = a.chemin;
+    $("confirmSuppr").showModal();
+    $("supprNon").focus(); // Entrée par réflexe ne supprime pas
+  }
+  $("supprNon").onclick = () => $("confirmSuppr").close();
+  $("supprOui").onclick = async () => {
+    const a = aSupprimer;
+    $("confirmSuppr").close();
+    if (a && await action("/api/supprimer", a)) { msg(`« ${a.titre || a.nom} » supprimé définitivement.`, "info"); chargerListe(); }
+  };
+
+  function chargerListe() {
+    return fetch("/api/ateliers").then((r) => r.json()).then((d) => {
+      const l = $("liste");
+      if (!d.ateliers.length) { l.innerHTML = `<div class="vide">Aucun atelier récent. Utilise « Parcourir… » pour choisir un dossier.</div>`; return d; }
+      l.innerHTML = "";
+      d.ateliers.forEach((a) => {
+        const c = document.createElement("div");
+        c.className = "carte cartouche";
+        c.innerHTML = `<div><div class="t">${a.client ? `<b>${esc(a.client)}</b>` : ""}${esc(a.titre || a.nom)}${a.mode === "libre" ? '<span class="badge">Notes libres</span>' : ""}</div>
+          <div class="m">${a.recent ? "Récent" : "Trouvé sur le disque"}${a.mode !== "libre" && a.questions ? ` · ${a.questions} questions` : ""}</div>
+          <div class="p">${esc(a.chemin)}</div>${a.erreur ? `<div class="e">⚠ ${esc(a.erreur)}</div>` : ""}</div>`;
+        const b = document.createElement("button");
+        b.className = "btn"; b.textContent = "Ouvrir"; b.disabled = !!a.erreur;
+        b.onclick = () => ouvrir(a.chemin, b);
+        const p = document.createElement("button");
+        p.className = "points"; p.textContent = "⋯"; p.title = "Plus d'actions";
+        p.setAttribute("aria-haspopup", "menu"); p.setAttribute("aria-expanded", "false");
+        p.onclick = () => ouvrirMenu(a, c, p);
+        c.append(b, p);
+        l.appendChild(c);
+      });
+      return d;
+    });
+  }
+
+  chargerListe().then((d) => {
     systeme = d.systeme;
     lireVersion(true);
     if (d.dossierNotes) $("libreBase").textContent = d.dossierNotes;
     if (d.systeme === "windows") $("chemin").placeholder = "…ou colle le chemin du dossier (ex. C:\\Missions\\Client\\atelier-01)";
     else $("chemin").placeholder = "…ou colle le chemin du dossier (ex. ~/Missions/Client/atelier-01)";
-    const l = $("liste");
-    if (!d.ateliers.length) { l.innerHTML = `<div class="vide">Aucun atelier récent. Utilise « Parcourir… » pour choisir un dossier.</div>`; return; }
-    l.innerHTML = "";
-    d.ateliers.forEach((a) => {
-      const c = document.createElement("div");
-      c.className = "carte cartouche";
-      c.innerHTML = `<div><div class="t">${a.client ? `<b>${esc(a.client)}</b>` : ""}${esc(a.titre || a.nom)}${a.mode === "libre" ? '<span class="badge">Notes libres</span>' : ""}</div>
-        <div class="m">${a.recent ? "Récent" : "Trouvé sur le disque"}${a.mode !== "libre" && a.questions ? ` · ${a.questions} questions` : ""}</div>
-        <div class="p">${esc(a.chemin)}</div>${a.erreur ? `<div class="e">⚠ ${esc(a.erreur)}</div>` : ""}</div>`;
-      const b = document.createElement("button");
-      b.className = "btn"; b.textContent = "Ouvrir"; b.disabled = !!a.erreur;
-      b.onclick = () => ouvrir(a.chemin, b);
-      c.appendChild(b);
-      l.appendChild(c);
-    });
   }).catch(() => msg("L'application ne répond pas : est-elle toujours lancée ?"));
 })();
 </script>

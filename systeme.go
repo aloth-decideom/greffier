@@ -88,6 +88,24 @@ func ouvrirNavigateur(url string) {
 	}
 }
 
+// ouvrirDossier montre un dossier dans l'explorateur de fichiers du système.
+func ouvrirDossier(dir string) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("explorer", dir)
+	case "darwin":
+		cmd = exec.Command("open", dir)
+	default:
+		cmd = exec.Command("xdg-open", dir)
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }() // explorer.exe rend un code d'erreur même quand tout va bien
+	return nil
+}
+
 // ---------------------------------------------------------------- ateliers récents
 
 func fichierRecents() string {
@@ -113,9 +131,25 @@ func ajouterRecent(dir string) {
 			l = append(l, d)
 		}
 	}
+	_ = ecrireRecents(l)
+}
+
+func retirerRecent(dir string) error {
+	l := []string{}
+	for _, d := range chargerRecents() {
+		if d != dir {
+			l = append(l, d)
+		}
+	}
+	return ecrireRecents(l)
+}
+
+func ecrireRecents(l []string) error {
 	raw, _ := json.MarshalIndent(l, "", " ")
-	_ = os.MkdirAll(filepath.Dir(fichierRecents()), 0o755)
-	_ = os.WriteFile(fichierRecents(), raw, 0o644)
+	if err := os.MkdirAll(filepath.Dir(fichierRecents()), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(fichierRecents(), raw, 0o644)
 }
 
 // dossiersDeRecherche : où chercher des ateliers (sous-dossiers contenant questions.md).

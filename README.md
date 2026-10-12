@@ -25,7 +25,7 @@ Dans les [**Releases**](../../releases), prendre le fichier correspondant à son
 ## Utiliser
 1. **Préparer l'atelier** : un dossier avec un fichier `questions.md` (partir de [`exemple/atelier-exemple`](exemple/atelier-exemple/questions.md)).
 2. **Double-clic sur Greffier** : une fenêtre de console (à garder ouverte), une page dans le navigateur et une **icône Greffier dans la zone de notification** (à côté de l'horloge) s'ouvrent. Navigateur fermé par erreur ? Clic sur l'icône : la page de l'atelier en cours se rouvre.
-3. **Choisir l'atelier** : dans la liste, avec **📂 Parcourir…** (sélecteur de dossier du système), en collant le chemin, ou en glissant le dossier sur Greffier.
+3. **Choisir l'atelier** : dans la liste, avec **📂 Parcourir…** (sélecteur de dossier du système), en collant le chemin, ou en glissant le dossier sur Greffier. Le bouton **⋯** de chaque ligne permet d'ouvrir le dossier de l'atelier, de le retirer des récents ou de le supprimer définitivement (après confirmation).
 4. **Animer** : question à l'écran, saisie de la réponse, tags (Décision, Action, Risque, À creuser, Hors périmètre), photos (bouton, glisser-déposer, Ctrl+V), **écran projeté** (touche P), synthèse (touche S). Un sujet imprévu : **page libre** (touche N).
 5. **Arrêter** : bouton **⏻ Arrêter l'application**, menu de l'icône → **Arrêter Greffier**, ou fermer la fenêtre de console.
 
