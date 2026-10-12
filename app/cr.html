@@ -33,6 +33,7 @@
   .audio button:hover { border-color: var(--rouge); color: var(--rouge); }
   .audio .warn { color: var(--warn); }
   .audio .ok { color: var(--ok); }
+  .audio a { color: var(--rouge); }
   .audio progress { flex: 1 1 120px; accent-color: var(--rouge); }
   .status { padding: 8px 18px; font-size: 12px; border-top: 1px solid var(--ligne); display: flex; gap: 14px; flex-wrap: wrap; }
   .status .warn { color: var(--warn); font-weight: 600; }
@@ -136,7 +137,7 @@
       if (enCours) h += `<span class="warn">Enregistrement en cours</span>`;
       if (aFaire && r.whisper) h += `<button id="bTranscrire" title="Transcription sur ce poste avec whisper.cpp : rien n'est envoyé sur internet">🎙 Transcrire${r.transcription ? " la suite" : ""}</button>`;
       if (aFaire && !r.whisper) h += `<span class="warn">Transcription impossible : whisper.cpp n'est pas installé (voir le README de Greffier)</span>`;
-      if (r.transcription) h += `<span class="ok">✓ Transcription jointe au prompt (sorties/transcription.md)</span>`;
+      if (r.transcription) h += `<span class="ok">✓ Transcription jointe au prompt</span><a href="api/transcription.md" target="_blank" title="sorties/transcription.md">Lire la transcription</a>`;
       if (r.transcription && r.segments.length && !aFaire && !enCours) h += `<button id="bSupprAudio" title="Déplace l'audio dans sorties/audio/supprimes/ ; la transcription reste">Supprimer l'audio</button>`;
     }
     el.innerHTML = h;

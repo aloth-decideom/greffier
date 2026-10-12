@@ -708,7 +708,7 @@ func (s *Serveur) api(w http.ResponseWriter, r *http.Request, dir, route string)
 			erreur(w, http.StatusNotFound, "pas de transcription")
 			return
 		}
-		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8") // affiché par le navigateur, pas téléchargé
 		_, _ = w.Write(data)
 
 	case strings.HasPrefix(route, "photo/"):
