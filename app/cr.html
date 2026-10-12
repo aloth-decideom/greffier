@@ -122,7 +122,10 @@
   let suivi = null;
   async function majAudio() {
     let r;
-    try { r = await (await fetch("api/audio")).json(); } catch (e) { return; }
+    try { r = await (await fetch("api/audio")).json(); } catch (e) {
+      if (suivi !== null) { clearTimeout(suivi); suivi = setTimeout(majAudio, 5000); }   // échec passager : le suivi continue
+      return;
+    }
     const el = $("audio"), e = r.etat || {};
     el.hidden = !r.segments.length && !r.transcription;
     if (r.transcription && !transcription && !e.enCours) {
