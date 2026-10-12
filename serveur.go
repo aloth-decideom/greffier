@@ -10,10 +10,12 @@ package main
 //   /api/oublier            retire un atelier des récents (le dossier reste sur le disque)
 //   /api/supprimer          supprime définitivement le dossier d'un atelier de la liste
 //   /api/version            version courante et éventuelle nouvelle version sur GitHub
+//   /api/mettre-a-jour      installe la nouvelle version puis redémarre (majauto.go)
 //   /a/<slug>/…             page d'atelier (fichiers intégrés + questions.js lu en direct)
 //   /a/<slug>/api/…         sauvegarde sur disque dans <atelier>/sorties/
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,6 +30,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -36,15 +39,17 @@ const maxBody = 30 << 20
 var rePhoto = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,120}\.(jpg|jpeg|png)$`)
 
 type Serveur struct {
-	origin    string
-	mu        sync.Mutex        // une écriture disque à la fois
-	ateliers  map[string]string // slug → dossier
-	amu       sync.Mutex
-	dernier   [2]string          // dernier atelier ouvert : adresse de sa page, titre (icône de notification)
-	ouverture func(titre string) // prévient l'icône de notification qu'un atelier est ouvert
-	Arret     chan struct{}      // fermé quand la page ou l'icône demande l'arrêt de l'application
-	arretOnce sync.Once
-	Maj       verificateurMaj
+	origin     string
+	mu         sync.Mutex        // une écriture disque à la fois
+	ateliers   map[string]string // slug → dossier
+	amu        sync.Mutex
+	dernier    [2]string          // dernier atelier ouvert : adresse de sa page, titre (icône de notification)
+	ouverture  func(titre string) // prévient l'icône de notification qu'un atelier est ouvert
+	Arret      chan struct{}      // fermé quand la page ou l'icône demande l'arrêt de l'application
+	arretOnce  sync.Once
+	Maj        verificateurMaj
+	majEnCours atomic.Bool
+	Relance    atomic.Bool // nouvelle version installée : main la lance après l'arrêt
 }
 
 func NewServeur(port int) *Serveur {
@@ -64,6 +69,7 @@ func (s *Serveur) Handler() http.Handler {
 	mux.HandleFunc("/api/oublier", s.oublier)
 	mux.HandleFunc("/api/supprimer", s.supprimer)
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, s.Maj.Info()) })
+	mux.HandleFunc("/api/mettre-a-jour", s.majHTTP)
 	mux.HandleFunc("/a/", s.atelier)
 	mux.HandleFunc("/static/", s.statique) // charte, polices, logo pour la page de choix
 	return mux
@@ -362,6 +368,49 @@ func (s *Serveur) arreter(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Serveur) demanderArret() { s.arretOnce.Do(func() { close(s.Arret) }) }
+
+func (s *Serveur) majHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || !s.memeOrigine(r) {
+		erreur(w, http.StatusForbidden, "refusé")
+		return
+	}
+	if err := s.mettreAJour(); err != nil {
+		erreur(w, http.StatusOK, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true}) // l'arrêt attend la fin de cette réponse
+}
+
+var errMajEnCours = errors.New("mise à jour déjà en cours")
+
+// mettreAJour installe la nouvelle version puis arrête l'application, que main relance.
+func (s *Serveur) mettreAJour() error {
+	if !s.majEnCours.CompareAndSwap(false, true) {
+		return errMajEnCours
+	}
+	info := s.Maj.Info()
+	if !info.Auto {
+		s.majEnCours.Store(false)
+		return errors.New("mise à jour automatique impossible ici : télécharger la nouvelle version")
+	}
+	logf("Mise à jour vers %s : téléchargement…", info.Derniere)
+	exe, err := executable()
+	if err == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		err = installerMaj(ctx, info, exe)
+		cancel()
+	}
+	if err != nil {
+		s.Maj.sansAuto() // ensuite, seulement le téléchargement à la main
+		s.majEnCours.Store(false)
+		logf("⚠ Mise à jour impossible : %v", err)
+		return err
+	}
+	logf("Greffier %s installé : redémarrage.", info.Derniere)
+	s.Relance.Store(true)
+	s.demanderArret()
+	return nil
+}
 
 // adressePage : la page du dernier atelier ouvert, sinon l'accueil.
 func (s *Serveur) adressePage() string {

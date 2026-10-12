@@ -35,7 +35,8 @@ Mode opératoire complet : [`docs/mode-operatoire.md`](docs/mode-operatoire.md).
 Sur la page d'accueil : **✏️ Notes libres**, un titre, **Démarrer**. Greffier crée un dossier daté dans `Documents/Greffier/`, et on prend des notes **page par page**, une par sujet (**N** pour une nouvelle page). La sauvegarde, les photos, les tags et le CR par IA fonctionnent comme pour un atelier, avec un modèle de compte rendu de réunion ([`modele-compte-rendu-libre.md`](modele-compte-rendu-libre.md)).
 
 ### Mettre à jour
-Au démarrage, Greffier regarde s'il existe une version plus récente sur GitHub. Si c'est le cas, la page d'accueil affiche **Télécharger**. Il suffit de remplacer l'ancien fichier par le nouveau : les notes sont dans les dossiers d'atelier, rien n'est perdu. Hors ligne, rien ne s'affiche. Pour désactiver la vérification : `--sans-maj` (ou la variable `GREFFIER_SANS_MAJ=1`).
+Au démarrage, Greffier regarde s'il existe une version plus récente sur GitHub. Si c'est le cas, l'icône Greffier propose **⬆ Installer Greffier vX et redémarrer**, et la page d'accueil **Installer et redémarrer** : Greffier télécharge la nouvelle version, vérifie sa somme de contrôle (`SHA256SUMS.txt` de la release), remplace son propre fichier et redémarre en quelques secondes. Les pages ouvertes continuent d'enregistrer, les notes ne bougent pas.
+Si l'application est dans un dossier non modifiable (Program Files, `/usr/local/bin`, Mac lancé depuis Téléchargements…), seul **Télécharger** est proposé : remplacer l'ancien fichier par le nouveau. Hors ligne, rien ne s'affiche. Pour désactiver la vérification : `--sans-maj` (ou la variable `GREFFIER_SANS_MAJ=1`).
 
 ### Le fichier `questions.md`
 ```md

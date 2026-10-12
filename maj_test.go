@@ -2,10 +2,12 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -40,7 +42,7 @@ func TestDerniereRelease(t *testing.T) {
 		if !strings.HasPrefix(r.Header.Get("User-Agent"), "greffier/") {
 			t.Error("User-Agent manquant (exigé par l'API GitHub)")
 		}
-		fmt.Fprintf(w, `{"tag_name":"v1.2.0","html_url":"https://exemple/rel","assets":[{"name":"autre","browser_download_url":"x"},{"name":%q,"browser_download_url":"https://exemple/bin"}]}`, nom)
+		fmt.Fprintf(w, `{"tag_name":"v1.2.0","html_url":"https://exemple/rel","assets":[{"name":"autre","browser_download_url":"x"},{"name":%q,"browser_download_url":"https://exemple/bin"},{"name":"SHA256SUMS.txt","browser_download_url":"https://exemple/sommes"}]}`, nom)
 	}))
 	defer srv.Close()
 	ancienne := urlDerniereRelease
@@ -56,6 +58,9 @@ func TestDerniereRelease(t *testing.T) {
 	}
 	if nom != "" && info.Telechargement != "https://exemple/bin" {
 		t.Errorf("lien de téléchargement inattendu : %q", info.Telechargement)
+	}
+	if info.Sommes != "https://exemple/sommes" {
+		t.Errorf("lien des sommes de contrôle inattendu : %q", info.Sommes)
 	}
 	if info, _ := derniereRelease(context.Background(), "v1.2.0"); info.Nouvelle {
 		t.Error("même version : pas de nouvelle version")
@@ -85,4 +90,79 @@ func TestNomBinaireCompiler(t *testing.T) {
 			t.Errorf("%s : %q absent de compiler.sh", c, n)
 		}
 	}
+}
+
+func TestInstallerMaj(t *testing.T) {
+	nom := nomBinaire(runtime.GOOS, runtime.GOARCH)
+	if nom == "" {
+		t.Skip("pas de binaire publié pour ce système")
+	}
+	nouveau := []byte("nouvelle version")
+	somme := sha256.Sum256(nouveau)
+	sommes := fmt.Sprintf("%x  autre-fichier\n%x  %s\n", sha256.Sum256([]byte("x")), somme, nom)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/bin":
+			_, _ = w.Write(nouveau)
+		case "/sommes":
+			fmt.Fprint(w, sommes)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	info := InfoVersion{Telechargement: srv.URL + "/bin", Sommes: srv.URL + "/sommes"}
+
+	installer := func(t *testing.T, info InfoVersion) (string, error) {
+		exe := filepath.Join(t.TempDir(), "greffier")
+		if err := os.WriteFile(exe, []byte("ancienne version"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		return exe, installerMaj(context.Background(), info, exe)
+	}
+
+	t.Run("somme correcte", func(t *testing.T) {
+		exe, err := installer(t, info)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, _ := os.ReadFile(exe); string(got) != string(nouveau) {
+			t.Errorf("exécutable non remplacé : %q", got)
+		}
+		if st, _ := os.Stat(exe); runtime.GOOS != "windows" && st.Mode()&0o100 == 0 {
+			t.Error("le nouvel exécutable doit être exécutable")
+		}
+		if _, err := os.Stat(fichierTemporaire(exe)); err == nil {
+			t.Error("fichier temporaire laissé sur place")
+		}
+	})
+
+	t.Run("somme fausse : rien ne change", func(t *testing.T) {
+		sommes = fmt.Sprintf("%x  %s\n", sha256.Sum256([]byte("autre chose")), nom)
+		defer func() { sommes = fmt.Sprintf("%x  %s\n", somme, nom) }()
+		exe, err := installer(t, info)
+		if err == nil || !strings.Contains(err.Error(), "somme de contrôle") {
+			t.Fatalf("erreur attendue, obtenu %v", err)
+		}
+		if got, _ := os.ReadFile(exe); string(got) != "ancienne version" {
+			t.Errorf("l'ancienne version doit rester : %q", got)
+		}
+		if _, err := os.Stat(fichierTemporaire(exe)); err == nil {
+			t.Error("fichier temporaire laissé sur place")
+		}
+	})
+
+	t.Run("binaire absent des sommes", func(t *testing.T) {
+		sommes = "abc  autre\n"
+		defer func() { sommes = fmt.Sprintf("%x  %s\n", somme, nom) }()
+		if _, err := installer(t, info); err == nil {
+			t.Fatal("erreur attendue")
+		}
+	})
+
+	t.Run("release sans binaire", func(t *testing.T) {
+		if _, err := installer(t, InfoVersion{}); err == nil {
+			t.Fatal("erreur attendue")
+		}
+	})
 }

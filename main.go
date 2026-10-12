@@ -42,6 +42,7 @@ func main() {
 	}
 	flag.Parse()
 	dossier := flag.Arg(0) // aussi rempli quand on glisse un dossier sur l'exécutable
+	nettoyerAncienneVersion()
 
 	if *generer {
 		if dossier == "" {
@@ -66,7 +67,11 @@ func main() {
 	srv := NewServeur(*port)
 	base := srv.origin
 
-	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
+	var ln net.Listener
+	err := ecouterApresRelance(func() (err error) {
+		ln, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
+		return err
+	})
 	if err != nil {
 		// Port occupé : l'application tourne sans doute déjà → on lui confie l'ouverture.
 		if dejaLancee(base) {
@@ -104,6 +109,7 @@ func main() {
 		go srv.Maj.Verifier(version)
 	}
 	server := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	eteint := make(chan struct{})
 	go func() {
 		<-srv.Arret
 		logf("Arrêt demandé : fin des écritures en cours…")
@@ -111,6 +117,7 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		_ = server.Shutdown(ctx) // n'interrompt pas une sauvegarde en cours
+		close(eteint)
 	}()
 	fini := make(chan struct{})
 	go func() {
@@ -121,6 +128,15 @@ func main() {
 	}()
 	lancerIcone(srv) // boucle de l'icône de notification, sur le fil principal (exigé par macOS)
 	<-fini
+	<-eteint // Serve rend la main dès le début de Shutdown : on attend la fin des écritures
+	if srv.Relance.Load() {
+		err := relancer()
+		if err == nil {
+			logf("Nouvelle version lancée.")
+			return
+		}
+		logf("⚠ Relance impossible (%v) : relancer Greffier à la main.", err)
+	}
 	logf("Application arrêtée. Les notes sont enregistrées dans le dossier sorties/ de l'atelier.")
 	time.Sleep(1200 * time.Millisecond) // le temps de lire le message avant que la fenêtre se ferme
 }

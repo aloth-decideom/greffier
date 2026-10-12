@@ -79,7 +79,7 @@
   .badge { display: inline-block; font-size: 11px; font-weight: 600; color: #fff; background: var(--tag-action); border-radius: 999px; padding: 1px 8px; margin-left: 8px; vertical-align: 2px; }
   .maj { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; padding: 12px 16px; border-radius: 10px; margin-bottom: 22px; font-size: 14px; background: #eef3fa; border: 1px solid #98B3D7; color: var(--encre); }
   .maj a { color: var(--rouge); font-weight: 600; }
-  .maj a.btn { color: #fff; text-decoration: none; padding: 8px 14px; font-size: 14px; }
+  .maj .btn { color: #fff; text-decoration: none; padding: 8px 14px; font-size: 14px; }
   [hidden] { display: none !important; }
   .version { margin-top: 26px; font-size: 12px; color: var(--gris); }
   @media (max-width: 700px) { .actions, .libre .champs { grid-template-columns: 1fr; } .carte { grid-template-columns: 1fr auto; } .carte > div:first-child { grid-column: 1 / -1; } }
@@ -212,11 +212,37 @@
     $("version").textContent = `Greffier ${v.version}`;
     if (!v.nouvelle) return;
     const m = $("maj");
+    const telecharger = v.telechargement ? `<a ${v.auto ? "" : 'class="btn"'} href="${esc(v.telechargement)}" target="_blank" rel="noopener">Télécharger${NOMS[systeme] ? " pour " + NOMS[systeme] : ""}</a>` : "";
     m.innerHTML = `<span>⬆ <b>Greffier ${esc(v.derniere)}</b> est disponible (tu as ${esc(v.version)}).</span>` +
-      (v.telechargement ? `<a class="btn" href="${esc(v.telechargement)}" target="_blank" rel="noopener">Télécharger${NOMS[systeme] ? " pour " + NOMS[systeme] : ""}</a>` : "") +
+      (v.auto ? `<button class="btn" id="majAuto">Installer et redémarrer</button>` : "") + telecharger +
       `<a href="${esc(v.page)}" target="_blank" rel="noopener">Nouveautés</a>` +
-      `<span style="font-size:12.5px;color:var(--texte)">Remplace l'ancien fichier par le nouveau : les notes restent dans les dossiers d'atelier.</span>`;
+      `<span style="font-size:12.5px;color:var(--texte)" id="majAide">${v.auto
+        ? "Greffier télécharge la nouvelle version, la vérifie, se remplace et redémarre en quelques secondes. Les notes ne bougent pas."
+        : "Remplace l'ancien fichier par le nouveau : les notes restent dans les dossiers d'atelier."}</span>`;
     m.hidden = false;
+    if (v.auto) $("majAuto").onclick = () => installerMaj(v);
+  }
+  // Mise à jour par l'application : elle se remplace, s'arrête et relance la nouvelle version.
+  async function installerMaj(v) {
+    const b = $("majAuto");
+    b.disabled = true; b.textContent = "Téléchargement…";
+    let r;
+    try { r = await post("/api/mettre-a-jour"); } catch (e) { r = { erreur: "l'application ne répond pas" }; }
+    if (r.erreur) {
+      msg("Mise à jour impossible : " + r.erreur + "\nTélécharge la nouvelle version avec le bouton « Télécharger ».");
+      afficherVersion({ ...v, auto: false });
+      return;
+    }
+    b.textContent = "Redémarrage…";
+    $("majAide").textContent = "Greffier redémarre : la page se recharge toute seule.";
+    const debut = Date.now();
+    const attendre = () => fetch("/api/version").then((x) => x.json()).then((n) => {
+      if (n.version === v.derniere) location.reload(); else throw new Error();
+    }).catch(() => {
+      if (Date.now() - debut < 60000) setTimeout(attendre, 1000);
+      else msg("Greffier ne redémarre pas : relance-le à la main (la nouvelle version est installée).");
+    });
+    setTimeout(attendre, 1500);
   }
   // La vérification peut finir juste après l'ouverture de la page : on redemande une fois.
   const lireVersion = (encore) => fetch("/api/version").then((r) => r.json()).then((v) => {

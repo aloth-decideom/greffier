@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"syscall"
 )
 
 // Titre de la fenêtre du Terminal (macOS, Linux), seulement si on écrit dans un terminal.
@@ -16,3 +17,8 @@ func initConsole() {
 }
 
 func cacherFenetre(cmd *exec.Cmd) {}
+
+// Nouvelle version lancée par une mise à jour : elle survit à la fermeture du Terminal de l'ancienne.
+func detacher(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+}

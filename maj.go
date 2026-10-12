@@ -24,11 +24,25 @@ type InfoVersion struct {
 	Nouvelle       bool   `json:"nouvelle"`
 	Page           string `json:"page,omitempty"`
 	Telechargement string `json:"telechargement,omitempty"`
+	Sommes         string `json:"-"`    // SHA256SUMS.txt de la release
+	Auto           bool   `json:"auto"` // mise à jour possible sans passer par le navigateur (majauto.go)
 }
 
 type verificateurMaj struct {
-	mu   sync.Mutex
-	info InfoVersion
+	mu       sync.Mutex
+	info     InfoVersion
+	pret     chan struct{} // fermé quand la vérification est terminée (réussie ou non)
+	pretOnce sync.Once
+}
+
+// Pret : canal fermé une fois la vérification terminée.
+func (v *verificateurMaj) Pret() <-chan struct{} {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.pret == nil {
+		v.pret = make(chan struct{})
+	}
+	return v.pret
 }
 
 func (v *verificateurMaj) Info() InfoVersion {
@@ -37,8 +51,17 @@ func (v *verificateurMaj) Info() InfoVersion {
 	return v.info
 }
 
+// sansAuto : après un échec, on ne propose plus que le téléchargement à la main.
+func (v *verificateurMaj) sansAuto() {
+	v.mu.Lock()
+	v.info.Auto = false
+	v.mu.Unlock()
+}
+
 // Verifier interroge GitHub (4 s maximum) et mémorise le résultat.
 func (v *verificateurMaj) Verifier(actuelle string) {
+	v.Pret()
+	defer v.pretOnce.Do(func() { close(v.pret) })
 	if _, ok := parseVersion(actuelle); !ok {
 		return // version de développement : pas de comparaison possible
 	}
@@ -48,6 +71,7 @@ func (v *verificateurMaj) Verifier(actuelle string) {
 	if err != nil {
 		return
 	}
+	info.Auto = info.Nouvelle && info.Telechargement != "" && info.Sommes != "" && peutSeRemplacer()
 	v.mu.Lock()
 	v.info = info
 	v.mu.Unlock()
@@ -87,8 +111,11 @@ func derniereRelease(ctx context.Context, actuelle string) (InfoVersion, error) 
 	info.Nouvelle = plusRecente(rel.Tag, actuelle)
 	nom := nomBinaire(runtime.GOOS, runtime.GOARCH)
 	for _, a := range rel.Assets {
-		if a.Nom == nom {
+		switch a.Nom {
+		case nom:
 			info.Telechargement = a.URL
+		case "SHA256SUMS.txt":
+			info.Sommes = a.URL
 		}
 	}
 	return info, nil

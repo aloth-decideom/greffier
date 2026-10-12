@@ -21,3 +21,6 @@ func initConsole() {
 func cacherFenetre(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 }
+
+// La nouvelle version reste dans la même fenêtre de console.
+func detacher(cmd *exec.Cmd) {}
