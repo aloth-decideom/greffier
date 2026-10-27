@@ -516,6 +516,10 @@
   // Page servie par Greffier seulement. Micro → PCM 16 bits mono rééchantillonné à 16 kHz
   // (AudioWorklet), envoyé toutes les 5 s à api/audio/<segment> : un plantage ne perd que
   // les dernières secondes. Chaque reprise après une pause ouvre un nouveau segment.
+  // Le niveau du son est suivi : status.alerte signale un micro qui ne capte rien (Chrome peut
+  // livrer des zéros pendant des heures, ex. micro USB débranché) ou une piste micro terminée.
+  // ecouter(true) ouvre le micro pour la jauge seule, hors enregistrement : rien n'est écrit ni
+  // envoyé, et un micro branché ou changé entre-temps est repris automatiquement.
   // opts : { onStatus: (status) => void, onSegment: (seg) => void }
   const WORKLET = `class P extends AudioWorkletProcessor {
     constructor() { super(); this.r = sampleRate / 16000; this.pos = 0; this.acc = 0; this.cnt = 0; this.b = new Int16Array(4000); this.n = 0; }
@@ -538,8 +542,62 @@
   function createRecorder(opts) {
     const supported = typeof location !== "undefined" && /^https?:$/.test(location.protocol) &&
       !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && typeof AudioWorkletNode !== "undefined";
-    const status = { actif: false, seg: null, enAttente: 0, erreur: null };
-    let ctx = null, stream = null, chunks = [], queue = [], timer = null, sending = null, wake = null, samples = 0;
+    const status = { actif: false, ecoute: false, seg: null, enAttente: 0, erreur: null, micro: "", niveau: 0, alerte: null };
+    let ctx = null, stream = null, chunks = [], queue = [], timer = null, veille = null, sending = null, wake = null, samples = 0, dernierSon = 0;
+    const SEUIL_SON = 4, DELAI_SILENCE = 15000;   // échantillons 16 bits ; un vrai micro dépasse toujours ce bruit de fond
+    // Micro ouvert → niveau suivi en continu ; les échantillons ne sont gardés que pendant l'enregistrement
+    async function ouvrir() {
+      if (stream) return;
+      const s = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
+      let c = null;
+      try {
+        c = new AudioContext();
+        const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
+        await c.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+        const node = new AudioWorkletNode(c, "greffier-pcm16");
+        node.port.onmessage = (e) => {
+          const m = new Int16Array(e.data);
+          if (status.actif) { chunks.push(m); samples += m.length; }
+          let crete = 0;
+          for (let i = 0; i < m.length; i++) { const v = m[i] < 0 ? -m[i] : m[i]; if (v > crete) crete = v; }
+          status.niveau = Math.max(status.niveau * 0.7, crete / 32768);
+          if (crete > SEUIL_SON) { dernierSon = Date.now(); if (status.alerte === "silence") { status.alerte = null; notify(); } }
+        };
+        c.createMediaStreamSource(s).connect(node);
+        node.connect(c.destination);   // sortie silencieuse : garde le nœud actif
+      } catch (e) {
+        s.getTracks().forEach((t) => t.stop());
+        if (c) c.close().catch(() => {});
+        throw e;
+      }
+      stream = s; ctx = c;
+      const piste = stream.getAudioTracks()[0];
+      status.micro = (piste && piste.label) || "micro par défaut";
+      status.alerte = null; status.niveau = 0; dernierSon = Date.now();
+      piste.onended = () => { fermer(); status.alerte = "deconnecte"; notify(); };
+      veille = setInterval(surveiller, 1000);
+    }
+    function fermer() {
+      clearInterval(veille);
+      if (stream) stream.getTracks().forEach((t) => { t.onended = null; t.stop(); });
+      if (ctx) ctx.close().catch(() => {});
+      stream = null; ctx = null; status.niveau = 0; status.alerte = null;
+    }
+    // Micro branché, débranché ou changé : la jauge suit le micro par défaut (pas pendant un
+    // enregistrement : le bandeau propose alors de relancer, qui ouvre un nouveau segment)
+    if (supported) navigator.mediaDevices.addEventListener("devicechange", async () => {
+      if (!status.ecoute || status.actif) return;
+      fermer();
+      await ouvrir().catch(() => {});
+      notify();
+    });
+    // Silence prolongé → alerte ; une piste terminée reste signalée
+    function surveiller() {
+      if (status.alerte === "deconnecte") return;
+      const alerte = Date.now() - dernierSon > DELAI_SILENCE ? "silence" : null;
+      if (alerte !== status.alerte) { status.alerte = alerte; notify(); }
+    }
     const notify = () => opts.onStatus && opts.onStatus({ ...status });
     const segName = () => {
       const d = new Date();
@@ -579,22 +637,10 @@
       async start() {
         if (status.actif) return;
         clearInterval(timer);   // envois en retard d'un segment précédent : repris par le nouveau minuteur
-        stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
-        try {
-          ctx = new AudioContext();
-          const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
-          await ctx.audioWorklet.addModule(url);
-          URL.revokeObjectURL(url);
-          const node = new AudioWorkletNode(ctx, "greffier-pcm16");
-          node.port.onmessage = (e) => { const c = new Int16Array(e.data); chunks.push(c); samples += c.length; };
-          ctx.createMediaStreamSource(stream).connect(node);
-          node.connect(ctx.destination);   // sortie silencieuse : garde le nœud actif
-        } catch (e) {
-          stream.getTracks().forEach((t) => t.stop());
-          if (ctx) ctx.close().catch(() => {});
-          throw e;
-        }
-        status.seg = segName(); status.actif = true; status.erreur = null; samples = 0;
+        if (status.alerte) fermer();   // micro perdu ou muet : on le rouvre (micro par défaut du moment)
+        await ouvrir();
+        status.seg = segName(); status.actif = true; status.erreur = null; status.alerte = null; samples = 0;
+        dernierSon = Date.now();
         timer = setInterval(() => { cut(); send(); }, 5000);
         try { wake = await navigator.wakeLock.request("screen"); } catch (e) { /* pas de verrou d'écran : tant pis */ }
         notify();
@@ -603,16 +649,28 @@
       async stop() {
         if (!status.actif) return;
         clearInterval(timer);
-        stream.getTracks().forEach((t) => t.stop());
-        await ctx.close().catch(() => {});
         cut();
         status.actif = false;
+        if (!status.ecoute) fermer();
         if (wake) { wake.release().catch(() => {}); wake = null; }
         const seg = status.seg;
         await send();
         if (!queue.length) await finish(seg);
         else timer = setInterval(async () => { await send(); if (!queue.length) { clearInterval(timer); finish(seg); } }, 5000);
         notify();
+      },
+      // Jauge hors enregistrement (true) ou micro fermé dès qu'on n'enregistre plus (false)
+      async ecouter(on) {
+        status.ecoute = !!on;
+        try { if (on) await ouvrir(); else if (!status.actif) fermer(); }
+        catch (e) { status.ecoute = false; throw e; }
+        finally { notify(); }
+      },
+      // Relance après une alerte : nouveau segment sur le micro par défaut du moment
+      async relancer() {
+        await this.stop();
+        fermer();
+        await this.start();
       },
     };
   }

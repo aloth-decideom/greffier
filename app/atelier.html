@@ -160,6 +160,10 @@
   .rec.on.warn { color: #fff; background: var(--rouge-fonce); }
   @keyframes rec { 50% { opacity: .2; } }
   .rec-group { display: inline-flex; align-items: center; gap: 6px; }
+  .vu { width: 44px; height: 8px; padding: 0; border: 1px solid var(--gris); border-radius: 4px; background: var(--fond); overflow: hidden; cursor: pointer; }
+  .vu.off { border-style: dashed; }
+  .vu i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .3s; }
+  .vu.muet i { background: var(--rouge-fonce); }
   .transcr { border: 0; background: none; padding: 0; font-size: 12px; color: var(--gris); white-space: nowrap; font-variant-numeric: tabular-nums; }
   .transcr:hover { color: var(--rouge); text-decoration: underline; }
   .transcr.ok { color: var(--ok); }
@@ -277,6 +281,7 @@
     <span class="pos" id="pos"></span>
     <div class="rec-group">
       <button class="rec" id="btnRec" hidden title="Enregistrer le son de l'atelier, pour une transcription locale (sorties/audio/)">🎙 Enregistrer</button>
+      <button class="vu off" id="recVu" hidden title="Niveau du micro"><i></i></button>
       <button class="transcr" id="recTranscr" hidden title="Avancement de la transcription : cliquer pour ouvrir le compte rendu"></button>
     </div>
     <button class="icon-btn" id="btnPage" title="Nouvelle page libre, pour un sujet hors questions (N)">＋ Page</button>
@@ -296,6 +301,7 @@
     </div>
   </header>
   <div class="disk-banner" id="diskBanner" hidden></div>
+  <div class="disk-banner err" id="recBanner" hidden></div>
 
   <section class="stage" id="stage">
     <div class="sec-title" id="secTitle"></div>
@@ -1140,12 +1146,39 @@
     b.classList.toggle("on", st.actif);
     b.classList.toggle("warn", !!st.erreur);
     b.textContent = st.actif ? fmt(total * 1000) : total ? `🎙 Reprendre (${fmt(total * 1000)})` : "🎙 Enregistrer";
-    b.title = st.erreur ? "⚠ " + st.erreur : st.actif ? "Enregistrement en cours : cliquer pour mettre en pause" : "Enregistrer le son de l'atelier, pour une transcription locale (sorties/audio/)";
+    b.title = st.erreur ? "⚠ " + st.erreur : st.actif ? `Enregistrement en cours (${st.micro}) : cliquer pour mettre en pause` : "Enregistrer le son de l'atelier, pour une transcription locale (sorties/audio/)";
+    renderVu(st);
     renderTranscr();
     // avancement de la transcription : relu pendant l'enregistrement et tant qu'elle tourne
     const transcrEnCours = recInfo && recInfo.etat && recInfo.etat.enCours;
     if ((st.actif || transcrEnCours) && Date.now() - recRelu > 10000) { recRelu = Date.now(); majDureeEnregistree(); }
   }
+  // Niveau du micro (échelle de -60 à 0 dB) et bandeau quand rien n'est capté : sans lui, un
+  // micro muet ou débranché donne des heures d'enregistrement vide sans que personne ne le voie.
+  function renderVu(st) {
+    const vu = $("recVu"), ban = $("recBanner"), ouvert = st.actif || st.ecoute;
+    vu.classList.toggle("off", !ouvert);
+    vu.classList.toggle("muet", ouvert && !!st.alerte);
+    vu.title = !ouvert ? "Tester le micro : afficher son niveau sans enregistrer"
+      : st.alerte === "deconnecte" ? "⚠ Micro déconnecté"
+      : st.alerte ? `⚠ Aucun son capté par ${st.micro}`
+      : st.actif ? `Niveau du micro (${st.micro})`
+      : `Niveau du micro (${st.micro}) : rien n'est enregistré. Cliquer pour fermer le micro`;
+    const db = st.niveau > 0 ? 20 * Math.log10(st.niveau) : -60;
+    vu.firstElementChild.style.width = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + "%";
+    if (!st.actif || !st.alerte) { ban.hidden = true; ban.dataset.alerte = ""; return; }
+    if (ban.dataset.alerte === st.alerte) return;   // pas de réécriture chaque seconde : le bouton reste cliquable
+    ban.dataset.alerte = st.alerte;
+    ban.innerHTML = (st.alerte === "deconnecte"
+      ? `<span>⚠ <b>Micro déconnecté</b> (${esc(st.micro)}) : le son n'est plus enregistré.</span>`
+      : `<span>⚠ <b>Aucun son capté</b> par le micro <code>${esc(st.micro)}</code> : il est muet, débranché ou ce n'est pas le bon. Vérifier le micro choisi dans le navigateur (icône 🎙 de la barre d'adresse), puis relancer.</span>`) +
+      `<button class="main" data-relancer>Relancer l'enregistrement</button>`;
+    ban.hidden = false;
+  }
+  $("recBanner").addEventListener("click", async (e) => {
+    if (!e.target.closest("[data-relancer]")) return;
+    try { await recorder.relancer(); await majDureeEnregistree(); toast("Enregistrement relancé : " + recorder.status.micro); } catch (err) { toast("Micro inaccessible : " + (err.message || err.name)); }
+  });
   // À côté du bouton d'enregistrement : où en est la transcription (clic : page compte rendu).
   function renderTranscr() {
     const t = $("recTranscr"), r = recInfo, e = (r && r.etat) || {};
@@ -1167,7 +1200,18 @@
     recAvant = r.segments.filter((sg) => !recorder.status.actif || sg.id !== recorder.status.seg).reduce((n, sg) => n + sg.secondes, 0);   // segments précédents seulement
     renderRec();
   }).catch(() => {});
-  if (recorder.supported) { $("btnRec").hidden = false; majDureeEnregistree(); }
+  if (recorder.supported) { $("btnRec").hidden = false; $("recVu").hidden = false; majDureeEnregistree(); }
+  // Jauge du micro dès l'ouverture de la page (si le navigateur l'autorise déjà sans demander),
+  // pour vérifier le micro avant de lancer l'enregistrement ; un clic la coupe, choix retenu.
+  const vuAuto = () => pref("jauge") !== "non" && recorder.supported && !document.body.classList.contains("projection");
+  if (vuAuto() && navigator.permissions) navigator.permissions.query({ name: "microphone" })
+    .then((p) => { if (p.state === "granted") return recorder.ecouter(true); }).catch(() => {});
+  $("recVu").onclick = async () => {
+    if (recorder.status.actif) return;
+    const on = !recorder.status.ecoute;
+    pref("jauge", on ? "oui" : "non");
+    try { await recorder.ecouter(on); if (on) toast("Micro : " + recorder.status.micro); } catch (e) { toast("Micro inaccessible : " + (e.message || e.name)); }
+  };
   $("btnRec").onclick = async () => {
     if (recorder.status.actif) {
       await recorder.stop();
@@ -1182,7 +1226,11 @@
       if (!ok) return;
       recConsenti = true;
     }
-    try { await recorder.start(); toast("Enregistrement démarré"); } catch (e) { toast("Micro inaccessible : " + (e.message || e.name)); }
+    try {
+      await recorder.start();
+      toast("Enregistrement démarré : " + recorder.status.micro);
+      if (vuAuto()) recorder.ecouter(true);   // jauge gardée pendant les pauses
+    } catch (e) { toast("Micro inaccessible : " + (e.message || e.name)); }
   };
 
   buildToc();
