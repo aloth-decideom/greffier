@@ -100,6 +100,27 @@ func (s *Serveur) memeOrigine(r *http.Request) bool {
 	return o == "" || o == s.origin || o == strings.Replace(s.origin, "127.0.0.1", "localhost", 1)
 }
 
+// Compte rendu de l'atelier : rédigé par Claude, puis relu et corrigé dans la page cr.html.
+func fichierCR(dir string) string {
+	return filepath.Join(dir, "sorties", "CR-"+filepath.Base(dir)+".md")
+}
+
+// Copie d'une version du compte rendu dans sorties/historique/ (origine : avant-claude, navigateur…).
+func copieCR(dir, md, origine string) error {
+	origine = regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(strings.ToLower(origine), "")
+	nom := fmt.Sprintf("CR-%s_%s_%s.md", filepath.Base(dir), time.Now().Format("2006-01-02_15h04m05"), origine)
+	return writeAtomic(filepath.Join(dir, "sorties", "historique", nom), []byte(md+"\n"))
+}
+
+// Met de côté le compte rendu actuel (s'il existe) avant de le remplacer.
+func mettreDeCoteCR(dir, origine string) error {
+	data, err := os.ReadFile(fichierCR(dir))
+	if err != nil || strings.TrimSpace(string(data)) == "" {
+		return nil
+	}
+	return copieCR(dir, strings.TrimSuffix(string(data), "\n"), origine)
+}
+
 // Écrit dans un fichier temporaire puis remplace : jamais de fichier à moitié écrit.
 func writeAtomic(p string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
@@ -624,9 +645,12 @@ func (s *Serveur) api(w http.ResponseWriter, r *http.Request, dir, route string)
 			erreur(w, http.StatusOK, err.Error())
 			return
 		}
-		fichier := filepath.Join(sorties, "CR-"+filepath.Base(dir)+".md")
+		fichier := fichierCR(dir)
 		s.mu.Lock()
-		err = writeAtomic(fichier, []byte(md+"\n"))
+		err = mettreDeCoteCR(dir, "avant-claude") // les corrections faites dans la page ne sont jamais perdues
+		if err == nil {
+			err = writeAtomic(fichier, []byte(md+"\n"))
+		}
 		s.mu.Unlock()
 		if err != nil {
 			erreur(w, http.StatusOK, "compte rendu rédigé mais non enregistré : "+err.Error())
@@ -634,6 +658,42 @@ func (s *Serveur) api(w http.ResponseWriter, r *http.Request, dir, route string)
 		}
 		logf("Compte rendu enregistré : %s", fichier)
 		writeJSON(w, http.StatusOK, map[string]string{"markdown": md, "fichier": fichier})
+
+	// Compte rendu relu dans la page cr.html : enregistré sur le disque au fil de la frappe.
+	case route == "cr" && r.Method == http.MethodGet:
+		fichier := fichierCR(dir)
+		res := map[string]any{"markdown": "", "fichier": fichier, "modifie": int64(0)}
+		if data, err := os.ReadFile(fichier); err == nil {
+			res["markdown"] = strings.TrimSuffix(string(data), "\n")
+			if st, err := os.Stat(fichier); err == nil {
+				res["modifie"] = st.ModTime().UnixMilli()
+			}
+		}
+		writeJSON(w, http.StatusOK, res)
+
+	case route == "cr" && r.Method == http.MethodPut:
+		// copie : version écartée par l'utilisateur (navigateur ≠ disque), gardée dans sorties/historique/
+		var p struct {
+			Markdown string `json:"markdown"`
+			Copie    string `json:"copie"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, maxBody)).Decode(&p); err != nil {
+			erreur(w, http.StatusBadRequest, "données illisibles")
+			return
+		}
+		s.mu.Lock()
+		var err error
+		if p.Copie != "" {
+			err = copieCR(dir, p.Markdown, p.Copie)
+		} else {
+			err = writeAtomic(fichierCR(dir), []byte(p.Markdown+"\n"))
+		}
+		s.mu.Unlock()
+		if err != nil {
+			erreur(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "heure": time.Now().Format("15:04:05")})
 
 	case route == "audio" && r.Method == http.MethodGet:
 		segments := listerSegments(sorties)

@@ -113,7 +113,7 @@ Un prompt commun ([`prompt-compte-rendu.md`](prompt-compte-rendu.md)) et un mod�
    - **✨ Rédiger avec Claude** (si [Claude Code](https://claude.com/claude-code) est installé et connecté) : Greffier lance `claude -p` avec l'abonnement Claude, sans clé API. Claude ne peut que lire les fichiers de `sorties/` (pour décrire les photos) ; le CR s'affiche dans la page et est enregistré dans `sorties/CR-<atelier>.md`. Compter 1 à 3 minutes. Claude Code introuvable alors qu'il est installé : indiquer son chemin dans la variable `GREFFIER_CLAUDE`.
    - sinon **🤖 Copier pour une autre IA** → coller dans Gemini, ChatGPT ou Claude, puis coller la réponse dans la page.
 2. Aperçu A4 avec les photos, [À CONFIRMER] surlignés et comptés.
-3. Corriger, puis **🖨 Imprimer / PDF**.
+3. Corriger, puis **🖨 Imprimer / PDF**. Les corrections sont **enregistrées au fil de la frappe** dans `sorties/CR-<atelier>.md` (💾 en haut de la page). Si la copie gardée par le navigateur diffère du fichier à l'ouverture (fichier modifié à la main, autre poste…), la page demande laquelle garder ; l'autre version, comme la précédente à chaque nouvelle rédaction par Claude, est mise de côté dans `sorties/historique/`.
 
 Avec **Claude Code**, la commande [`/compte-rendu`](.claude/commands/compte-rendu.md) fait tout, jusqu'au PDF ([`cr2pdf.py`](cr2pdf.py), qui nécessite pandoc).
 

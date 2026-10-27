@@ -51,7 +51,7 @@ Les photos sont réduites automatiquement (environ 300 Ko), enregistrées dans `
 2. **J+1, rédaction par l'IA** : « 📝 Compte rendu », puis « ✨ Rédiger avec Claude », ou « 🤖 Copier pour une autre IA » et coller dans **Gemini**. Le prompt impose le modèle de CR, interdit d'inventer et fait marquer **[À CONFIRMER]** ce qui est ambigu.
    Avec Claude Code : `/compte-rendu <atelier>` fait tout, jusqu'au PDF.
 3. **Relecture** : coller la réponse dans `cr.html`, traiter chaque [À CONFIRMER] (ils sont surlignés et comptés), vérifier les actions (qui, quand) et les chiffres.
-4. **PDF** : « 🖨 Imprimer / PDF », puis « Enregistrer en PDF » ; envoi sous 48 h. Garder aussi le « ⬇ CR .md » dans `sorties/`.
+4. **PDF** : « 🖨 Imprimer / PDF », puis « Enregistrer en PDF » ; envoi sous 48 h. Le CR relu est déjà dans `sorties/CR-<atelier>.md` (enregistré au fil de la frappe).
 
 L'IA produit aussi, dans le CR :
 - un premier jet du **rapport d'étonnement** (garder / refondre / abandonner) ;

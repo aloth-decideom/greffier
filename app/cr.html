@@ -21,6 +21,9 @@
   .editor header { padding: 14px 18px; border-bottom: 1px solid var(--ligne); }
   .editor .logo { display: flex; align-items: center; gap: 10px; }
   .editor .logo img { height: 30px; }
+  .editor .disque { margin-left: auto; font-size: 12px; color: var(--gris); white-space: nowrap; }
+  .editor .disque.ok { color: var(--ok); }
+  .editor .disque.err { color: var(--rouge-fonce); font-weight: 600; }
   .editor .client { color: var(--rouge); font-family: var(--font-titre); font-weight: 600; font-size: 12px; letter-spacing: .05em; text-transform: uppercase; }
   .editor h1 { margin: 8px 0 0; font-family: var(--font-titre); font-size: 17px; color: var(--encre); font-weight: 500; }
   .etapes { list-style: none; margin: 0; padding: 4px 0; counter-reset: etape; border-bottom: 1px solid var(--ligne); }
@@ -66,7 +69,7 @@
 <body>
 <section class="editor">
   <header>
-    <div class="logo"><a class="accueil" href="/" title="Retour à l'accueil de Greffier (liste des ateliers)" onclick="return /^https?:$/.test(location.protocol)"><img src="img/logo-decideom.png" alt="DecideOm"></a><span class="client" id="client"></span></div>
+    <div class="logo"><a class="accueil" href="/" title="Retour à l'accueil de Greffier (liste des ateliers)" onclick="return /^https?:$/.test(location.protocol)"><img src="img/logo-decideom.png" alt="DecideOm"></a><span class="client" id="client"></span><span class="disque" id="disque" hidden></span></div>
     <h1>Compte rendu</h1>
   </header>
   <ol class="etapes">
@@ -187,7 +190,8 @@
     fetch("api/claude").then((r) => r.json()).then((r) => { $("bClaude").hidden = !r.disponible; $("bCopy").classList.toggle("primary", !r.disponible); }).catch(() => {});
   }
   $("bClaude").onclick = async () => {
-    if ($("md").value.trim() && !confirm("Remplacer le compte rendu actuel par une nouvelle rédaction de Claude ?")) return;
+    if ($("md").value.trim() && !confirm("Remplacer le compte rendu actuel par une nouvelle rédaction de Claude ?\n\nLa version actuelle est gardée dans sorties/historique/.")) return;
+    await enregistrer();   // dernières corrections sur le disque avant qu'elles soient mises de côté
     const b = $("bClaude"), debut = Date.now();
     b.disabled = true;
     const tic = () => status(`✨ Claude rédige le compte rendu… ${Math.round((Date.now() - debut) / 1000)} s (en général 1 à 3 min)`);
@@ -198,6 +202,7 @@
       const res = await r.json();
       if (res.erreur) throw new Error(res.erreur);
       $("md").value = res.markdown;
+      if (surDisque !== null) surDisque = res.markdown;   // déjà écrit par Greffier
       await render();
       status(`✓ Rédigé par Claude, enregistré dans ${esc(res.fichier)}. ` + $("status").innerHTML, true);
     } catch (e) {
@@ -248,6 +253,7 @@
     const seq = ++renderSeq;
     const md = clean($("md").value);
     try { localStorage.setItem(CR_KEY, $("md").value); } catch (e) { /* stockage indisponible */ }
+    planifier();
     const doc = $("doc");
     if (!md) {
       doc.innerHTML = `<div class="empty">L'aperçu du compte rendu s'affichera ici.<br>1. « Rédiger avec Claude », ou « Copier pour une autre IA » → Gemini<br>2. Coller la réponse à gauche</div>`;
@@ -295,7 +301,62 @@
   }
   function status(msg, isHtml) { const s = $("status"); if (isHtml) s.innerHTML = msg; else s.textContent = msg; }
   let t;
-  $("md").addEventListener("input", () => { clearTimeout(t); t = setTimeout(render, 300); });
+  $("md").addEventListener("input", () => {
+    try { localStorage.setItem(CR_KEY + "-modifie", String(Date.now())); } catch (e) { /* stockage indisponible */ }
+    clearTimeout(t); t = setTimeout(render, 300);
+  });
+
+  // ---------- Enregistrement sur le disque (page servie par Greffier seulement) ----------
+  // Le texte relu est écrit dans sorties/CR-<atelier>.md 1 s après la dernière frappe. Le navigateur
+  // en garde une copie (localStorage) : si elle diffère du fichier à l'ouverture, on demande laquelle
+  // garder, et l'autre est mise de côté dans sorties/historique/.
+  let surDisque = null;   // texte tel qu'il est sur le disque ; null : pas de disque (page hors Greffier)
+  let fichierCR = "", tDisque = null, envoi = null;
+  const putCR = (corps, keepalive) => fetch("api/cr", { method: "PUT", keepalive: !!keepalive, headers: { "Content-Type": "application/json" }, body: JSON.stringify(corps) })
+    .then((r) => r.json()).then((res) => { if (res.erreur) throw new Error(res.erreur); return res; });
+  function disque(txt, cls) {
+    const d = $("disque");
+    d.textContent = txt; d.className = "disque " + (cls || ""); d.title = fichierCR; d.hidden = false;
+  }
+  function planifier() {
+    if (surDisque === null || $("md").value === surDisque) return;
+    disque("💾 …");
+    clearTimeout(tDisque);
+    tDisque = setTimeout(enregistrer, 1000);
+  }
+  async function enregistrer() {
+    clearTimeout(tDisque);
+    if (envoi) await envoi;
+    const md = $("md").value;
+    if (surDisque === null || md === surDisque) return;
+    envoi = putCR({ markdown: md })
+      .then((res) => { surDisque = md; disque(`💾 enregistré à ${res.heure}`, "ok"); })
+      .catch((e) => { disque("⚠ non enregistré sur le disque", "err"); $("disque").title = (e.message || "Greffier injoignable") + " : nouvel essai dans 5 s"; tDisque = setTimeout(enregistrer, 5000); })
+      .finally(() => { envoi = null; });
+    return envoi;
+  }
+  window.addEventListener("pagehide", () => { if (surDisque !== null && $("md").value !== surDisque) putCR({ markdown: $("md").value }, true).catch(() => {}); });
+  window.addEventListener("beforeunload", (e) => { if ($("disque").classList.contains("err")) { e.preventDefault(); e.returnValue = ""; } });
+  async function chargerDisque() {
+    if (!/^https?:$/.test(location.protocol)) return;
+    let res;
+    try { res = await (await fetch("api/cr")).json(); } catch (e) { return; }
+    if (!res || res.erreur || typeof res.markdown !== "string") return;
+    fichierCR = res.fichier;
+    const local = $("md").value, surLeDisque = res.markdown, nom = fichierCR.split(/[\\/]/).pop();
+    if (local.trim() && surLeDisque.trim() && local !== surLeDisque) {
+      const date = (ms) => ms ? new Date(ms).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "date inconnue";
+      let modifLocale = 0;
+      try { modifLocale = Number(localStorage.getItem(CR_KEY + "-modifie")) || 0; } catch (e) { /* stockage indisponible */ }
+      const garderLocal = confirm(`Le compte rendu de ce navigateur (modifié le ${date(modifLocale)}) diffère du fichier ${nom} (modifié le ${date(res.modifie)}).\n\n` +
+        `OK : garder la version de ce navigateur (elle remplace le fichier).\nAnnuler : reprendre le fichier du disque.\n\nL'autre version est gardée dans sorties/historique/.`);
+      try { await putCR({ markdown: garderLocal ? surLeDisque : local, copie: garderLocal ? "disque" : "navigateur" }); }
+      catch (e) { status("⚠ Copie de la version écartée impossible : " + (e.message || "Greffier injoignable")); return; }   // rien n'est écrasé
+      if (!garderLocal) $("md").value = surLeDisque;
+    } else if (surLeDisque.trim()) $("md").value = surLeDisque;
+    surDisque = surLeDisque;
+    disque(`💾 ${nom}`, "ok");
+  }
 
   // ---------- Fichiers ----------
   $("bImport").onclick = async () => {
@@ -317,7 +378,7 @@
     document.title = title;
   };
 
-  render();
+  chargerDisque().finally(render);
 })();
 </script>
 </body>
