@@ -106,7 +106,7 @@ func main() {
 		go func() { time.Sleep(400 * time.Millisecond); ouvrirNavigateur(url) }()
 	}
 	if !*sansMaj {
-		go srv.Maj.Verifier(version)
+		go srv.Maj.Surveiller(version)
 	}
 	server := &http.Server{Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	eteint := make(chan struct{})

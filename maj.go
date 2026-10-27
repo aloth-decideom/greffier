@@ -1,6 +1,7 @@
 package main
 
-// Avis de nouvelle version : au démarrage, une requête à l'API GitHub (dernière release).
+// Avis de nouvelle version : une requête à l'API GitHub (dernière release) au démarrage, puis
+// toutes les 4 h, pour une application laissée ouverte plusieurs jours.
 // Hors ligne, en erreur ou pour une version de développement : rien n'est affiché, rien ne bloque.
 
 import (
@@ -33,6 +34,28 @@ type verificateurMaj struct {
 	info     InfoVersion
 	pret     chan struct{} // fermé quand la vérification est terminée (réussie ou non)
 	pretOnce sync.Once
+	change   chan struct{} // signalé quand une vérification annonce autre chose qu'avant
+	echec    bool          // mise à jour automatique ratée pour cette version (sansAuto)
+}
+
+const intervalleMaj = 4 * time.Hour
+
+// Surveiller vérifie tout de suite, puis toutes les 4 h (ne rend pas la main).
+func (v *verificateurMaj) Surveiller(actuelle string) {
+	v.Verifier(actuelle)
+	for range time.Tick(intervalleMaj) {
+		v.Verifier(actuelle)
+	}
+}
+
+// Changements : canal signalé à chaque changement de l'avis de version (icône Greffier).
+func (v *verificateurMaj) Changements() <-chan struct{} {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.change == nil {
+		v.change = make(chan struct{}, 1)
+	}
+	return v.change
 }
 
 // Pret : canal fermé une fois la vérification terminée.
@@ -55,6 +78,7 @@ func (v *verificateurMaj) Info() InfoVersion {
 func (v *verificateurMaj) sansAuto() {
 	v.mu.Lock()
 	v.info.Auto = false
+	v.echec = true
 	v.mu.Unlock()
 }
 
@@ -72,9 +96,23 @@ func (v *verificateurMaj) Verifier(actuelle string) {
 		return
 	}
 	info.Auto = info.Nouvelle && info.Telechargement != "" && info.Sommes != "" && peutSeRemplacer()
+	v.Changements() // crée le canal
 	v.mu.Lock()
+	change := v.change
+	if info.Derniere != v.info.Derniere {
+		v.echec = false // nouvelle version : on retente l'installation automatique
+	}
+	info.Auto = info.Auto && !v.echec
+	nouveau := info != v.info
 	v.info = info
 	v.mu.Unlock()
+	if !nouveau {
+		return
+	}
+	select {
+	case change <- struct{}{}:
+	default: // déjà signalé, pas encore lu
+	}
 	if info.Nouvelle {
 		logf("Nouvelle version %s disponible (tu as %s) : %s", info.Derniere, actuelle, info.Page)
 	}

@@ -49,11 +49,15 @@ func lancerIcone(s *Serveur) {
 			accueil.Show()
 		})
 		systray.SetOnTapped(func() { ouvrirNavigateur(s.adressePage()) }) // clic gauche
+		// Avis de nouvelle version, mis à jour à chaque vérification (toutes les 4 h)
 		go func() {
 			<-s.Maj.Pret()
-			if info := s.Maj.Info(); info.Nouvelle {
-				titreMaj(maj, info)
-				maj.Show()
+			for {
+				if info := s.Maj.Info(); info.Nouvelle && !s.majEnCours.Load() {
+					titreMaj(maj, info)
+					maj.Show()
+				}
+				<-s.Maj.Changements()
 			}
 		}()
 		// onReady doit rendre la main : le menu n'est publié qu'après.

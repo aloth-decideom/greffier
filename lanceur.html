@@ -205,7 +205,7 @@
   };
   ["libreTitre", "libreClient"].forEach((id) => $(id).addEventListener("keydown", (e) => { if (e.key === "Enter") $("libreGo").click(); }));
 
-  // Nouvelle version sur GitHub (vérifiée par l'application au démarrage ; rien si hors ligne)
+  // Nouvelle version sur GitHub (vérifiée par l'application au démarrage puis toutes les 4 h ; rien si hors ligne)
   const NOMS = { windows: "Windows", macos: "macOS", linux: "Linux" };
   let systeme = "";
   function afficherVersion(v) {
@@ -249,6 +249,8 @@
     afficherVersion(v);
     if (!v.derniere && encore) setTimeout(() => lireVersion(false), 5000);
   }).catch(() => {});
+  // Page laissée ouverte : l'application revérifie toutes les 4 h, la page relit son avis
+  setInterval(() => { if (!$("majAuto") || !$("majAuto").disabled) lireVersion(false); }, 30 * 60 * 1000);
 
   $("ouvrirChemin").onclick = () => ouvrir($("chemin").value.trim(), $("ouvrirChemin"));
   $("chemin").addEventListener("keydown", (e) => { if (e.key === "Enter") $("ouvrirChemin").click(); });

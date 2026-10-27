@@ -1123,12 +1123,14 @@
   window.addEventListener("beforeunload", (e) => { if (saver.status.pending || recorder.status.actif) { saver.flush(); e.preventDefault(); e.returnValue = ""; } });
 
   if (/^https?:$/.test(location.protocol)) {
-    fetch("/api/version").then((r) => r.json()).then((v) => {
+    const lireVersion = () => fetch("/api/version").then((r) => r.json()).then((v) => {
       if (!v.nouvelle) return;
       const a = $("maj");
       a.href = v.page; a.hidden = false;
       a.textContent = `⬆ Greffier ${v.derniere} est disponible (tu as ${v.version})`;
     }).catch(() => { /* hors ligne ou ancienne version : rien à signaler */ });
+    lireVersion();
+    setInterval(lireVersion, 30 * 60 * 1000);   // l'application revérifie toutes les 4 h
   }
 
   // ---------- Enregistrement du son ----------

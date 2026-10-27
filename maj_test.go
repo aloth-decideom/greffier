@@ -166,3 +166,50 @@ func TestInstallerMaj(t *testing.T) {
 		}
 	})
 }
+
+// Revérification : une release publiée après le démarrage est signalée ; un échec d'installation
+// automatique reste retenu pour cette version, pas pour la suivante.
+func TestVerifierRevérification(t *testing.T) {
+	tag := "v1.0.0"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"tag_name":%q,"html_url":"https://exemple/rel"}`, tag)
+	}))
+	defer srv.Close()
+	ancienne := urlDerniereRelease
+	urlDerniereRelease = srv.URL
+	defer func() { urlDerniereRelease = ancienne }()
+
+	var v verificateurMaj
+	change := v.Changements()
+	v.Verifier("v1.0.0")
+	<-change // premier avis (aucune nouvelle version)
+	if v.Info().Nouvelle {
+		t.Fatal("même version : pas de nouvelle version")
+	}
+	tag = "v1.1.0"
+	v.Verifier("v1.0.0")
+	select {
+	case <-change:
+	default:
+		t.Fatal("nouvelle version publiée : changement non signalé")
+	}
+	if i := v.Info(); !i.Nouvelle || i.Derniere != "v1.1.0" {
+		t.Fatalf("info inattendue : %+v", i)
+	}
+	v.Verifier("v1.0.0")
+	select {
+	case <-change:
+		t.Error("rien de nouveau : aucun changement à signaler")
+	default:
+	}
+	v.sansAuto()
+	v.Verifier("v1.0.0")
+	if !v.echec {
+		t.Error("même version : l'échec de l'installation automatique doit rester retenu")
+	}
+	tag = "v1.2.0"
+	v.Verifier("v1.0.0")
+	if v.echec {
+		t.Error("version suivante : l'installation automatique doit être retentée")
+	}
+}
