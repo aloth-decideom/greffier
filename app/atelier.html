@@ -164,6 +164,9 @@
   .vu.off { border-style: dashed; }
   .vu i { display: block; height: 100%; width: 0; background: var(--ok); transition: width .3s; }
   .vu.muet i { background: var(--rouge-fonce); }
+  .visio { border: 1px dashed var(--gris); border-radius: 4px; background: none; padding: 1px 6px; font-size: 12px; color: var(--gris); white-space: nowrap; cursor: pointer; }
+  .visio.on { border-style: solid; border-color: var(--ok); color: var(--ok); }
+  .visio.warn { border-style: solid; border-color: #f0cf9c; color: var(--warn); }
   .transcr { border: 0; background: none; padding: 0; font-size: 12px; color: var(--gris); white-space: nowrap; font-variant-numeric: tabular-nums; }
   .transcr:hover { color: var(--rouge); text-decoration: underline; }
   .transcr.ok { color: var(--ok); }
@@ -282,6 +285,7 @@
     <div class="rec-group">
       <button class="rec" id="btnRec" hidden title="Enregistrer le son de l'atelier, pour une transcription locale (sorties/audio/)">🎙 Enregistrer</button>
       <button class="vu off" id="recVu" hidden title="Niveau du micro"><i></i></button>
+      <button class="visio" id="recVisio" hidden>🎧 Visio</button>
       <button class="transcr" id="recTranscr" hidden title="Avancement de la transcription : cliquer pour ouvrir le compte rendu"></button>
     </div>
     <button class="icon-btn" id="btnPage" title="Nouvelle page libre, pour un sujet hors questions (N)">＋ Page</button>
@@ -1166,6 +1170,7 @@
       : `Niveau du micro (${st.micro}) : rien n'est enregistré. Cliquer pour fermer le micro`;
     const db = st.niveau > 0 ? 20 * Math.log10(st.niveau) : -60;
     vu.firstElementChild.style.width = Math.max(0, Math.min(100, (db + 60) / 60 * 100)) + "%";
+    renderVisio(st);
     if (!st.actif || !st.alerte) { ban.hidden = true; ban.dataset.alerte = ""; return; }
     if (ban.dataset.alerte === st.alerte) return;   // pas de réécriture chaque seconde : le bouton reste cliquable
     ban.dataset.alerte = st.alerte;
@@ -1175,6 +1180,29 @@
       `<button class="main" data-relancer>Relancer l'enregistrement</button>`;
     ban.hidden = false;
   }
+  // Bouton 🎧 Visio : son des participants d'une visio (Teams, Meet…) mélangé au micro.
+  const VISIO_CASQUE = "Avec un casque : sur les haut-parleurs, le micro reprend aussi les participants (voix en double).";
+  function renderVisio(st) {
+    const b = $("recVisio");
+    b.classList.toggle("on", st.visio && !!st.visioSource);
+    b.classList.toggle("warn", st.visio && !!st.visioErreur);
+    b.title = !st.visio ? "Visio (Teams, Meet…) : capter aussi le son des participants, mélangé au micro. " + VISIO_CASQUE
+      : st.visioErreur ? `⚠ Son de la visio non capté : ${st.visioErreur}. Cliquer pour ne plus le capter`
+      : st.visioSource ? `Son de la visio capté (${st.visioSource}) avec le micro. Cliquer pour ne plus le capter`
+      : recorder.visioMode === "ecran" ? "Son de la visio : sera capté au démarrage de l'enregistrement (partage de l'écran avec « Partager l'audio du système »)"
+      : "Son de la visio : sera capté avec le micro";
+  }
+  $("recVisio").onclick = async () => {
+    const on = !recorder.status.visio;
+    pref("visio", on ? "oui" : "non");
+    try { await recorder.visio(on, true); } catch (e) { toast("Micro inaccessible : " + (e.message || e.name)); return; }
+    const st = recorder.status;
+    toast(!on ? "Son de la visio : plus capté, micro seul"
+      : st.visioErreur ? "⚠ Son de la visio non capté : " + st.visioErreur
+      : st.visioSource ? "Son de la visio capté avec le micro. " + VISIO_CASQUE
+      : recorder.visioMode === "ecran" ? "Au démarrage de l'enregistrement, partager l'écran en cochant « Partager l'audio du système »"
+      : "Son de la visio capté avec le micro dès l'enregistrement. " + VISIO_CASQUE);
+  };
   $("recBanner").addEventListener("click", async (e) => {
     if (!e.target.closest("[data-relancer]")) return;
     try { await recorder.relancer(); await majDureeEnregistree(); toast("Enregistrement relancé : " + recorder.status.micro); } catch (err) { toast("Micro inaccessible : " + (err.message || err.name)); }
@@ -1201,6 +1229,7 @@
     renderRec();
   }).catch(() => {});
   if (recorder.supported) { $("btnRec").hidden = false; $("recVu").hidden = false; majDureeEnregistree(); }
+  if (recorder.visioMode) { $("recVisio").hidden = false; if (pref("visio") === "oui") recorder.visio(true).catch(() => {}); }
   // Jauge du micro dès l'ouverture de la page (si le navigateur l'autorise déjà sans demander),
   // pour vérifier le micro avant de lancer l'enregistrement ; un clic la coupe, choix retenu.
   const vuAuto = () => pref("jauge") !== "non" && recorder.supported && !document.body.classList.contains("projection");
@@ -1210,7 +1239,7 @@
     if (recorder.status.actif) return;
     const on = !recorder.status.ecoute;
     pref("jauge", on ? "oui" : "non");
-    try { await recorder.ecouter(on); if (on) toast("Micro : " + recorder.status.micro); } catch (e) { toast("Micro inaccessible : " + (e.message || e.name)); }
+    try { await recorder.ecouter(on, true); if (on) toast("Micro : " + recorder.status.micro); } catch (e) { toast("Micro inaccessible : " + (e.message || e.name)); }
   };
   $("btnRec").onclick = async () => {
     if (recorder.status.actif) {
@@ -1228,7 +1257,9 @@
     }
     try {
       await recorder.start();
-      toast("Enregistrement démarré : " + recorder.status.micro);
+      const st = recorder.status;
+      toast(st.visio && st.visioErreur ? "⚠ Enregistrement démarré, micro seul : son de la visio non capté (" + st.visioErreur + ")"
+        : "Enregistrement démarré : " + st.micro + (st.visioSource ? " + son de la visio" : ""));
       if (vuAuto()) recorder.ecouter(true);   // jauge gardée pendant les pauses
     } catch (e) { toast("Micro inaccessible : " + (e.message || e.name)); }
   };

@@ -9,6 +9,7 @@ package main
 //   /api/montrer            ouvre le dossier d'un atelier de la liste dans l'explorateur de fichiers
 //   /api/oublier            retire un atelier des récents (le dossier reste sur le disque)
 //   /api/supprimer          supprime définitivement le dossier d'un atelier de la liste
+//   /api/son-visio          Linux : source « Monitor of … » de la sortie audio, pour capter une visio
 //   /api/version            version courante et éventuelle nouvelle version sur GitHub
 //   /api/mettre-a-jour      installe la nouvelle version puis redémarre (majauto.go)
 //   /a/<slug>/…             page d'atelier (fichiers intégrés + questions.js lu en direct)
@@ -74,6 +75,9 @@ func (s *Serveur) Handler() http.Handler {
 	mux.HandleFunc("/api/montrer", s.montrer)
 	mux.HandleFunc("/api/oublier", s.oublier)
 	mux.HandleFunc("/api/supprimer", s.supprimer)
+	mux.HandleFunc("/api/son-visio", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"moniteur": moniteurSortieAudio()})
+	})
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, s.Maj.Info()) })
 	mux.HandleFunc("/api/mettre-a-jour", s.majHTTP)
 	mux.HandleFunc("/a/", s.atelier)

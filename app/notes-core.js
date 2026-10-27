@@ -520,6 +520,10 @@
   // livrer des zéros pendant des heures, ex. micro USB débranché) ou une piste micro terminée.
   // ecouter(true) ouvre le micro pour la jauge seule, hors enregistrement : rien n'est écrit ni
   // envoyé, et un micro branché ou changé entre-temps est repris automatiquement.
+  // visio(true) mélange au micro le son de l'ordinateur, donc les participants d'une visio (Teams,
+  // Meet…) qu'un casque empêche le micro d'entendre. Linux : source « Monitor of … » de la sortie
+  // audio, ouverte comme un micro (api/son-visio dit laquelle). Windows, macOS : partage d'écran
+  // avec l'audio du système (Edge, Chrome), qui ne peut être demandé que sur un clic.
   // opts : { onStatus: (status) => void, onSegment: (seg) => void }
   const WORKLET = `class P extends AudioWorkletProcessor {
     constructor() { super(); this.r = sampleRate / 16000; this.pos = 0; this.acc = 0; this.cnt = 0; this.b = new Int16Array(4000); this.n = 0; }
@@ -542,20 +546,58 @@
   function createRecorder(opts) {
     const supported = typeof location !== "undefined" && /^https?:$/.test(location.protocol) &&
       !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && typeof AudioWorkletNode !== "undefined";
-    const status = { actif: false, ecoute: false, seg: null, enAttente: 0, erreur: null, micro: "", niveau: 0, alerte: null };
-    let ctx = null, stream = null, chunks = [], queue = [], timer = null, veille = null, sending = null, wake = null, samples = 0, dernierSon = 0;
+    const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+    const visioMode = !supported ? "" : /Linux/.test(ua) && !/Android/.test(ua) ? "moniteur"
+      : navigator.mediaDevices.getDisplayMedia && /Chrome|Edg\//.test(ua) ? "ecran" : "";
+    const status = { actif: false, ecoute: false, seg: null, enAttente: 0, erreur: null, micro: "", niveau: 0, alerte: null,
+      visio: false, visioSource: "", visioErreur: null };
+    let ctx = null, stream = null, visioStream = null, chunks = [], queue = [], timer = null, veille = null, sending = null, wake = null, samples = 0, dernierSon = 0;
     const SEUIL_SON = 4, DELAI_SILENCE = 15000;   // échantillons 16 bits ; un vrai micro dépasse toujours ce bruit de fond
-    // Micro ouvert → niveau suivi en continu ; les échantillons ne sont gardés que pendant l'enregistrement
-    async function ouvrir() {
+    const SANS_TRAITEMENT = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+    // Son de la visio, gardé ouvert d'un segment à l'autre (le partage d'écran ne se redemande pas)
+    async function ouvrirVisio(geste) {
+      if (visioStream && visioStream.getAudioTracks().some((t) => t.readyState === "live")) return visioStream;
+      fermerVisio();
+      let s;
+      if (visioMode === "moniteur") {
+        const r = await fetch("/api/son-visio").then((x) => x.json()).catch(() => ({}));
+        const mons = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === "audioinput" && /^(Monitor of|Moniteur de) /.test(d.label));
+        const d = mons.find((m) => m.label === r.moniteur) || (mons.length === 1 ? mons[0] : null);
+        if (!d) throw new Error(mons.length ? "sortie audio à capter introuvable" : "le navigateur ne propose pas le son de l'ordinateur");
+        s = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: d.deviceId }, ...SANS_TRAITEMENT } });
+      } else {
+        if (!geste) return null;   // le partage d'écran exige un clic : demandé au démarrage de l'enregistrement
+        s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 1 }, audio: SANS_TRAITEMENT, systemAudio: "include" });
+        if (!s.getAudioTracks().length) {
+          s.getTracks().forEach((t) => t.stop());
+          throw new Error("cocher « Partager l'audio du système » dans la fenêtre de partage");
+        }
+      }
+      visioStream = s;
+      return s;
+    }
+    function fermerVisio() {
+      if (visioStream) visioStream.getTracks().forEach((t) => { t.onended = null; t.stop(); });
+      visioStream = null; status.visioSource = "";
+    }
+    // Micro ouvert → niveau suivi en continu ; les échantillons ne sont gardés que pendant l'enregistrement.
+    // geste : appelé depuis un clic (seul cas où le partage d'écran peut être demandé).
+    async function ouvrir(geste) {
       if (stream) return;
+      status.visioErreur = null;
+      let v = null;
+      const visio = async () => { try { v = await ouvrirVisio(geste); } catch (e) { status.visioErreur = e.message || e.name; } };
+      if (status.visio && visioMode === "ecran") await visio();   // avant le micro : le clic est encore « frais »
       const s = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: false, noiseSuppression: true, autoGainControl: true } });
+      if (status.visio && visioMode === "moniteur") await visio();   // après le micro : noms des sources lisibles
       let c = null;
       try {
         c = new AudioContext();
         const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
         await c.audioWorklet.addModule(url);
         URL.revokeObjectURL(url);
-        const node = new AudioWorkletNode(c, "greffier-pcm16");
+        // une seule voie : le son stéréo de la visio est ramené en mono, puis additionné au micro
+        const node = new AudioWorkletNode(c, "greffier-pcm16", { channelCount: 1, channelCountMode: "explicit", channelInterpretation: "speakers" });
         node.port.onmessage = (e) => {
           const m = new Int16Array(e.data);
           if (status.actif) { chunks.push(m); samples += m.length; }
@@ -565,6 +607,12 @@
           if (crete > SEUIL_SON) { dernierSon = Date.now(); if (status.alerte === "silence") { status.alerte = null; notify(); } }
         };
         c.createMediaStreamSource(s).connect(node);
+        if (v) {
+          c.createMediaStreamSource(v).connect(node);
+          const pv = v.getAudioTracks()[0];
+          status.visioSource = visioMode === "ecran" ? "son de l'ordinateur" : pv.label;
+          pv.onended = () => { status.visioSource = ""; status.visioErreur = "le son de la visio n'est plus capté (partage arrêté ?)"; notify(); };
+        }
         node.connect(c.destination);   // sortie silencieuse : garde le nœud actif
       } catch (e) {
         s.getTracks().forEach((t) => t.stop());
@@ -583,6 +631,12 @@
       if (stream) stream.getTracks().forEach((t) => { t.onended = null; t.stop(); });
       if (ctx) ctx.close().catch(() => {});
       stream = null; ctx = null; status.niveau = 0; status.alerte = null;
+    }
+    // Micro (et visio) rouverts avec les réglages du moment, sans changer de segment
+    async function rouvrir(geste) {
+      if (!stream) return;
+      fermer();
+      await ouvrir(geste);
     }
     // Micro branché, débranché ou changé : la jauge suit le micro par défaut (pas pendant un
     // enregistrement : le bandeau propose alors de relancer, qui ouvre un nouveau segment)
@@ -638,7 +692,8 @@
         if (status.actif) return;
         clearInterval(timer);   // envois en retard d'un segment précédent : repris par le nouveau minuteur
         if (status.alerte) fermer();   // micro perdu ou muet : on le rouvre (micro par défaut du moment)
-        await ouvrir();
+        if (status.visio && !status.visioSource) fermer();   // jauge ouverte sans la visio (partage d'écran pas encore demandé)
+        await ouvrir(true);
         status.seg = segName(); status.actif = true; status.erreur = null; status.alerte = null; samples = 0;
         dernierSon = Date.now();
         timer = setInterval(() => { cut(); send(); }, 5000);
@@ -651,7 +706,7 @@
         clearInterval(timer);
         cut();
         status.actif = false;
-        if (!status.ecoute) fermer();
+        if (!status.ecoute) { fermer(); fermerVisio(); }
         if (wake) { wake.release().catch(() => {}); wake = null; }
         const seg = status.seg;
         await send();
@@ -660,11 +715,20 @@
         notify();
       },
       // Jauge hors enregistrement (true) ou micro fermé dès qu'on n'enregistre plus (false)
-      async ecouter(on) {
+      async ecouter(on, geste) {
         status.ecoute = !!on;
-        try { if (on) await ouvrir(); else if (!status.actif) fermer(); }
+        try { if (on) await ouvrir(geste); else if (!status.actif) { fermer(); fermerVisio(); } }
         catch (e) { status.ecoute = false; throw e; }
         finally { notify(); }
+      },
+      // "" si ce navigateur ne sait pas capter le son de l'ordinateur ; sinon "moniteur" ou "ecran"
+      visioMode,
+      // Son de la visio mélangé au micro (true) ou non ; appliqué tout de suite si le micro est ouvert
+      async visio(on, geste) {
+        status.visio = !!on;
+        if (!on) fermerVisio();
+        status.visioErreur = null;
+        try { await rouvrir(geste); } finally { notify(); }
       },
       // Relance après une alerte : nouveau segment sur le micro par défaut du moment
       async relancer() {

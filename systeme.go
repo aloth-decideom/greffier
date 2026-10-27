@@ -88,6 +88,38 @@ func ouvrirNavigateur(url string) {
 	}
 }
 
+// moniteurSortieAudio : sous Linux (PulseAudio ou PipeWire), nom de la source « Monitor of … » de
+// la sortie audio par défaut, tel que le navigateur la liste parmi les micros. L'enregistrer capte
+// ce que l'on entend dans le casque, donc les participants d'une visio. "" si introuvable.
+func moniteurSortieAudio() string {
+	if runtime.GOOS != "linux" {
+		return ""
+	}
+	sortie, err := exec.Command("pactl", "get-default-sink").Output()
+	if err != nil {
+		return ""
+	}
+	sources, err := exec.Command("pactl", "list", "sources").Output()
+	if err != nil {
+		return ""
+	}
+	return descriptionSource(string(sources), strings.TrimSpace(string(sortie))+".monitor")
+}
+
+// descriptionSource : champ Description de la source nommée dans la sortie de « pactl list sources ».
+func descriptionSource(liste, nom string) string {
+	trouve := false
+	for _, l := range strings.Split(liste, "\n") {
+		l = strings.TrimSpace(l)
+		if v, ok := strings.CutPrefix(l, "Name: "); ok {
+			trouve = v == nom
+		} else if v, ok := strings.CutPrefix(l, "Description: "); ok && trouve {
+			return v
+		}
+	}
+	return ""
+}
+
 // ouvrirDossier montre un dossier dans l'explorateur de fichiers du système.
 func ouvrirDossier(dir string) error {
 	var cmd *exec.Cmd
