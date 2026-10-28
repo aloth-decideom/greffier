@@ -58,3 +58,34 @@ func TestCompteRenduDisque(t *testing.T) {
 		t.Errorf("une copie ne doit pas toucher au compte rendu : %q", b)
 	}
 }
+
+// Questions modifiées dans la page : questions.md réécrit, ancien gardé, adresse conservée si le client change.
+func TestQuestionsModifiees(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "atelier-02")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "questions.md"), []byte("---\nclient: Ancien\nautre: garde\n---\n# P\n## A1. S\n- Q: q\n"), 0o644)
+	avant, _, _ := LoadAtelier(dir)
+	s := NewServeur(8770)
+	appel := func(corps string) int {
+		rec := httptest.NewRecorder()
+		s.api(rec, httptest.NewRequest("PUT", "/a/x/api/questions", strings.NewReader(corps)), dir, "questions")
+		return rec.Code
+	}
+	if c := appel(`{"meta":{"client":"Nouveau","slug":"pirate"},"parts":[{"title":"P","sections":[{"title":"S","minutes":5,"questions":[{"text":"q2","star":true,"relances":["r"]}]}]}]}`); c != http.StatusOK {
+		t.Fatalf("statut %d", c)
+	}
+	apres, _, err := LoadAtelier(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := apres.Parts[0].Sections[0].Questions[0]
+	if apres.Slug != avant.Slug || apres.Meta["client"] != "Nouveau" || apres.Meta["autre"] != "garde" || q.Text != "q2" || !q.Star {
+		t.Errorf("après modification : %+v", apres)
+	}
+	if copies, _ := filepath.Glob(filepath.Join(dir, "sorties", "historique", "questions_*.md")); len(copies) != 1 {
+		t.Errorf("ancien questions.md non gardé : %v", copies)
+	}
+	if c := appel(`{"parts":`); c != http.StatusBadRequest {
+		t.Errorf("corps illisible : statut %d", c)
+	}
+}

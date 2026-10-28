@@ -12,6 +12,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -182,13 +184,102 @@ func LoadAtelier(dir string) (*Atelier, []string, error) {
 			client = "notes"
 		}
 	}
-	a := &Atelier{Meta: meta, Parts: parts, Slug: slugify(client + "-" + name), Dossier: name}
+	slug := slugify(client + "-" + name)
+	if s := slugify(meta["slug"]); s != "" { // fixé quand le client a été renommé depuis la page : même adresse, mêmes notes
+		slug = s
+	}
+	a := &Atelier{Meta: meta, Parts: parts, Slug: slug, Dossier: name}
 	if estLibre(meta) {
 		a.Mode = "libre"
 	}
 	a.StorageKey = "decideom-" + a.Slug
 	a.PromptCR = buildPrompt(meta)
 	return a, warnings, nil
+}
+
+// Rappel du format écrit en tête de questions.md quand la page le réécrit.
+const formatQuestions = `<!--
+FORMAT (lu par Greffier) — à respecter :
+  # Partie X — Titre (durée)
+  ## X1. Titre de section | 15 min | cible: CODIR | étape: 2     (durée, cible, étape : facultatives)
+  - Q: Texte de la question            (* en tête = question prioritaire)
+    - relance: Question de relance (affichée en petit / en notes présentateur)
+Modifiable aussi depuis la page de l'atelier (⋯ › ✎ Modifier les questions).
+Après modification à la main : recharger la page de l'atelier (Greffier relit ce fichier).
+-->`
+
+// Clés de l'en-tête dans l'ordre d'écriture ; les autres suivent par ordre alphabétique.
+var ordreMeta = []string{"atelier", "client", "mission", "animateurs", "contexte", "mode", "slug"}
+
+// FormatQuestions : inverse de ParseQuestions. Les codes de section sont renumérotés
+// (lettre de la partie, rang dans la partie) : A1, A2… B1… ; les ids des questions en découlent.
+func FormatQuestions(meta map[string]string, parts []Part) (string, error) {
+	if len(parts) > 26 {
+		return "", fmt.Errorf("26 parties au plus")
+	}
+	ligne := func(s string) string { return strings.Join(strings.Fields(s), " ") }
+	var b strings.Builder
+	b.WriteString("---\n")
+	cles := append([]string{}, ordreMeta...)
+	var autres []string
+	for k := range meta {
+		if !slices.Contains(ordreMeta, k) {
+			autres = append(autres, k)
+		}
+	}
+	sort.Strings(autres)
+	for _, k := range append(cles, autres...) {
+		k = strings.TrimSpace(strings.ReplaceAll(k, ":", ""))
+		if v := nettoyerChamp(meta[k]); k != "" && v != "" {
+			fmt.Fprintf(&b, "%s: %s\n", k, v)
+		}
+	}
+	b.WriteString("---\n\n" + formatQuestions + "\n")
+	for pi, p := range parts {
+		lettre := string(rune('A' + pi))
+		titre := ligne(p.Title)
+		if titre == "" {
+			titre = "Partie " + lettre
+		}
+		fmt.Fprintf(&b, "\n# %s\n", titre)
+		for si, s := range p.Sections {
+			titre := strings.NewReplacer("|", "/", "·", "-").Replace(ligne(s.Title))
+			if titre == "" {
+				titre = "Sans titre"
+			}
+			fmt.Fprintf(&b, "\n## %s%d. %s", lettre, si+1, titre)
+			if s.Minutes > 0 {
+				fmt.Fprintf(&b, " | %d min", s.Minutes)
+			}
+			for _, kv := range [][2]string{{"cible", s.Cible}, {"étape", s.Etape}} {
+				if v := strings.NewReplacer("|", "/", "·", "-").Replace(ligne(kv[1])); v != "" {
+					fmt.Fprintf(&b, " | %s: %s", kv[0], v)
+				}
+			}
+			b.WriteString("\n")
+			for _, q := range s.Questions {
+				texte := ligne(q.Text)
+				if !q.Star { // un « * » ou « ★ » en tête serait relu comme une priorité
+					for (strings.HasPrefix(texte, "*") && !strings.HasPrefix(texte, "**")) || strings.HasPrefix(texte, "★") {
+						texte = strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(texte, "★"), "*"))
+					}
+				}
+				if texte == "" {
+					continue
+				}
+				if q.Star {
+					texte = "* " + texte
+				}
+				fmt.Fprintf(&b, "- Q: %s\n", texte)
+				for _, r := range q.Relances {
+					if r = ligne(r); r != "" {
+						fmt.Fprintf(&b, "  - relance: %s\n", r)
+					}
+				}
+			}
+		}
+	}
+	return b.String(), nil
 }
 
 func (a *Atelier) QuestionCount() (sections, questions int) {

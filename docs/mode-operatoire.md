@@ -29,7 +29,7 @@ Les photos sont réduites automatiquement (environ 300 Ko), enregistrées dans `
 
 ## Avant l'atelier (J-3)
 1. Envoyer `ordre-du-jour.md`, avec la liste des documents à préparer.
-2. Ajuster `questions.md` (ajouter ou retirer des questions et des `*`) ; recharger la page de l'atelier pour voir le résultat.
+2. Ajuster les questions (ajouter ou retirer des questions et des ★) : dans la page de l'atelier, **⋯ › ✎ Modifier les questions** (touche **Q**), ou en éditant `questions.md` puis en rechargeant la page. L'éditeur reste utilisable pendant la séance : les notes déjà prises suivent leur question.
 3. **Répétition** : lancer Greffier, ouvrir l'atelier, vérifier le témoin « 💾 », appuyer sur **P**, glisser la 2e fenêtre sur l'écran externe, **F** pour le plein écran. Saisir une réponse, coller une image, vérifier qu'elles apparaissent dans `sorties/`, puis « ⋯ Plus » → « Nouvelle session » (la répétition est gardée dans `sorties/historique/`).
 4. Vérifier que le navigateur autorise les pop-ups pour cette page (sinon l'écran projeté ne s'ouvre pas).
 5. **Atelier en visio** : brancher le casque, activer **🎧 Visio** à côté de la jauge du micro et vérifier que la jauge bouge quand une vidéo joue. Sous Windows et macOS, au démarrage de l'enregistrement, partager l'écran en cochant « Partager l'audio du système ».

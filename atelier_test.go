@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -162,5 +163,71 @@ func TestCreerNotesLibres(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "marp")); err == nil {
 		t.Error("marp/ ne devrait pas être généré pour des notes libres")
+	}
+}
+
+func TestFormatQuestionsAllerRetour(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("exemple", "atelier-exemple", "questions.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, parts, _, err := ParseQuestions(string(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	texte, err := FormatQuestions(meta, parts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta2, parts2, warnings, err := ParseQuestions(texte)
+	if err != nil || len(warnings) > 0 {
+		t.Fatalf("relecture : %v %v\n%s", err, warnings, texte)
+	}
+	if !reflect.DeepEqual(meta, meta2) || !reflect.DeepEqual(parts, parts2) {
+		t.Errorf("aller-retour différent :\n%s", texte)
+	}
+}
+
+func TestFormatQuestionsRenumerote(t *testing.T) {
+	parts := []Part{
+		{Title: "", Sections: []Section{
+			{Code: "B3", Title: "Ma | section", Questions: []Question{
+				{Text: "* pas prioritaire"}, {Text: "  "}, {Text: "Deuxième\nligne", Star: true, Relances: []string{"", "relance"}},
+			}},
+		}},
+		{Title: "Partie deux", Sections: []Section{{Code: "A1", Title: "Autre"}, {Code: "A7", Title: "Encore"}}},
+	}
+	texte, err := FormatQuestions(map[string]string{"client": "X\n--- Y", "atelier": "T"}, parts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	meta, got, _, err := ParseQuestions(texte)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, texte)
+	}
+	if meta["client"] != "X — Y" {
+		t.Errorf("client : %q", meta["client"])
+	}
+	if got[0].Title != "Partie A" || got[0].Sections[0].Code != "A1" || got[0].Sections[0].Title != "Ma / section" ||
+		got[1].Sections[0].Code != "B1" || got[1].Sections[1].Code != "B2" {
+		t.Errorf("codes ou titres incorrects :\n%s", texte)
+	}
+	qs := got[0].Sections[0].Questions
+	if len(qs) != 2 || qs[0].Star || qs[0].Text != "pas prioritaire" || qs[1].ID != "A1-2" || !qs[1].Star ||
+		qs[1].Text != "Deuxième ligne" || len(qs[1].Relances) != 1 {
+		t.Errorf("questions incorrectes : %+v", qs)
+	}
+}
+
+func TestSlugFixe(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "atelier-1")
+	os.MkdirAll(dir, 0o755)
+	os.WriteFile(filepath.Join(dir, "questions.md"), []byte("---\nclient: Nouveau nom\nslug: ancien-atelier-1\n---\n# Partie\n## A1. S\n- Q: q\n"), 0o644)
+	a, _, err := LoadAtelier(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.Slug != "ancien-atelier-1" || a.StorageKey != "decideom-ancien-atelier-1" {
+		t.Errorf("slug : %q", a.Slug)
 	}
 }

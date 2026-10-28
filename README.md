@@ -59,6 +59,7 @@ contexte: Quelques phrases de contexte, reprises dans le prompt du compte rendu.
 - Après le titre, séparés par `|` et facultatifs : durée (`15 min`, utilisée par le chronomètre), `cible:`, `étape:`.
 - `- Q:` une question (`*` en tête = prioritaire, affichée avec ★) ; `- relance:` une relance, affichée à l'animateur seulement.
 - Modifier le fichier puis **recharger la page** : Greffier le relit.
+- Ou, sans toucher au fichier : **⋯ › ✎ Modifier les questions** (touche **Q**) dans la page de l'atelier, avant ou pendant la séance. On y modifie l'en-tête, les parties, sections, questions, ★ et relances, et on réordonne sections et questions par glisser-déposer (poignée ⠿) ; Greffier réécrit `questions.md` (l'ancien est gardé dans `sorties/historique/`) et renumérote les sections. Les notes déjà prises suivent leur question ; une question retirée qui avait des notes devient une page libre « (question retirée) … ».
 
 ### Ce que Greffier écrit dans le dossier de l'atelier
 ```

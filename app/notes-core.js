@@ -114,6 +114,31 @@
         state.audio = { ...audio, reperes: [...audio.reperes, r] };
         persist();
       },
+      // Questions modifiées dans la page : les notes et repères suivent leur question (map ancien id → nouveau).
+      // Les notes d'une question retirée (orphelins : [{id, text}]) deviennent une page libre. Renvoie la table complétée.
+      renameIds(map, orphelins) {
+        map = { ...map };
+        const retirees = new Set();
+        for (const o of orphelins || []) {
+          retirees.add(o.id);
+          if (!isAnswered(state.answers[o.id])) continue;
+          const used = state.pages.map((p) => parseInt(String(p.id).slice(1), 10) || 0);
+          const n = Math.max(state.meta.nextPage || 1, ...used.map((u) => u + 1));
+          state.pages = [...state.pages, { id: "P" + n, title: "(question retirée) " + o.text, createdAt: new Date().toISOString() }];
+          state.meta.nextPage = n + 1;
+          map[o.id] = "P" + n;
+        }
+        // Deux passes : un id renommé l'emporte sur une ancienne note restée sous le même id.
+        const answers = {};
+        for (const [id, a] of Object.entries(state.answers)) if (!(id in map) && !retirees.has(id)) answers[id] = a;
+        for (const [id, a] of Object.entries(state.answers)) if (map[id]) answers[map[id]] = a;
+        state.answers = answers;
+        if (state.audio && state.audio.reperes) {
+          state.audio = { ...state.audio, reperes: state.audio.reperes.map((r) => (map[r.id] ? { ...r, id: map[r.id] } : r)) };
+        }
+        persist();
+        return map;
+      },
       reset() { state = emptyState(); persist(); },
       load(obj) { state = Object.assign(emptyState(), obj); persist(); },
       onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },

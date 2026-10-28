@@ -15,6 +15,7 @@ package main
 //   /a/<slug>/…             page d'atelier (fichiers intégrés + questions.js lu en direct)
 //   /a/<slug>/api/…         sauvegarde sur disque dans <atelier>/sorties/
 //   /a/<slug>/api/cr-claude compte rendu rédigé par Claude Code (ia.go)
+//   /a/<slug>/api/questions questions et en-tête modifiés dans la page (questions.md réécrit)
 //   /a/<slug>/api/audio…    enregistrement du son (audio.go) ; api/transcrire : transcription locale (transcription.go)
 
 import (
@@ -674,6 +675,63 @@ func (s *Serveur) api(w http.ResponseWriter, r *http.Request, dir, route string)
 			}
 		}
 		writeJSON(w, http.StatusOK, res)
+
+	// Questions et en-tête modifiés dans la page : questions.md réécrit, l'ancien gardé dans sorties/historique/.
+	case route == "questions" && r.Method == http.MethodPut:
+		var p struct {
+			Meta  map[string]string `json:"meta"`
+			Parts []Part            `json:"parts"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, maxBody)).Decode(&p); err != nil {
+			erreur(w, http.StatusBadRequest, "données illisibles")
+			return
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		ancien, _, err := LoadAtelier(dir)
+		if err != nil {
+			erreur(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if ancien.Mode == "libre" {
+			erreur(w, http.StatusBadRequest, "notes libres : pas de questions à modifier")
+			return
+		}
+		meta := map[string]string{}
+		for k, v := range ancien.Meta {
+			meta[k] = v
+		}
+		for k, v := range p.Meta {
+			if k != "mode" && k != "slug" {
+				meta[k] = v
+			}
+		}
+		client := orDefault(nettoyerChamp(meta["client"]), "client")
+		if slugify(client+"-"+filepath.Base(dir)) != ancien.Slug {
+			meta["slug"] = ancien.Slug // client renommé : même adresse de page, mêmes notes dans le navigateur
+		}
+		texte, err := FormatQuestions(meta, p.Parts)
+		if err == nil {
+			_, _, _, err = ParseQuestions(texte)
+		}
+		if err != nil {
+			erreur(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		fichier := filepath.Join(dir, "questions.md")
+		if data, err := os.ReadFile(fichier); err == nil {
+			nom := fmt.Sprintf("questions_%s.md", time.Now().Format("2006-01-02_15h04m05"))
+			if err := writeAtomic(filepath.Join(sorties, "historique", nom), data); err != nil {
+				erreur(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+		}
+		if err := writeAtomic(fichier, []byte(texte)); err != nil {
+			erreur(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		logf("Questions modifiées depuis la page : %s", fichier)
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "heure": time.Now().Format("15:04:05")})
 
 	case route == "cr" && r.Method == http.MethodPut:
 		// copie : version écartée par l'utilisateur (navigateur ≠ disque), gardée dans sorties/historique/

@@ -212,6 +212,49 @@
   .panel .close { float: right; }
   .help kbd { font-family: var(--mono); border: 1px solid var(--ligne); border-radius: 4px; padding: 1px 6px; background: var(--fond-2); }
   .help td:first-child { white-space: nowrap; width: 260px; }
+  /* ---------- Modifier les questions ---------- */
+  #editQ .panel { padding: 0; display: flex; flex-direction: column; }
+  .eq-head { position: sticky; top: 0; z-index: 1; background: var(--fond); border-bottom: 1px solid var(--ligne); padding: 18px 28px 12px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .eq-head h2 { flex: 1; }
+  .eq-head .note { flex-basis: 100%; font-size: 13px; color: var(--gris); }
+  .eq-head .note.err { color: var(--rouge-fonce); }
+  .eq-body { padding: 8px 28px 28px; }
+  .eq-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px; margin: 12px 0 8px; }
+  .eq-meta label { font-size: 11px; color: var(--gris); display: grid; gap: 2px; }
+  .eq-meta label.wide { grid-column: 1 / -1; }
+  #editQ input, #editQ textarea { border: 1px solid var(--ligne); border-radius: 6px; padding: 5px 8px; font-size: 14px; background: var(--fond); width: 100%; min-width: 0; color: var(--texte-fort); }
+  #editQ textarea { resize: vertical; min-height: 54px; }
+  #editQ input:focus, #editQ textarea:focus { outline: none; border-color: var(--rouge); }
+  .eq-row { display: flex; gap: 6px; align-items: center; }
+  #editQ .eq-row .grow { flex: 1; width: auto; }
+  #editQ .eq-row input.small { width: 110px; flex: none; }
+  #editQ .eq-row input.tiny { width: 70px; flex: none; }
+  .eq-x { border: 0; background: none; color: var(--gris); padding: 2px 6px; border-radius: 6px; font-size: 13px; flex: none; }
+  .eq-x:hover { color: var(--rouge); background: var(--rouge-clair); }
+  .eq-x:disabled { visibility: hidden; }
+  .eq-star { font-size: 18px; color: #c5c5cc; }
+  .eq-star.on { color: var(--rouge); }
+  .eq-part { border-top: 2px solid var(--encre); margin-top: 22px; padding-top: 10px; }
+  .eq-part > .eq-row .code { font-family: var(--font-titre); font-weight: 700; color: var(--encre); }
+  .eq-part > .eq-row input { font-family: var(--font-titre); font-size: 16px; color: var(--encre); }
+  .eq-sec { border: 1px solid var(--ligne); border-radius: 10px; margin: 10px 0 0 18px; padding: 10px 12px; background: var(--fond-2); }
+  .eq-sec > .eq-row .code { font-family: var(--font-titre); font-weight: 600; color: var(--rouge); min-width: 30px; }
+  .eq-q { margin: 6px 0 0 30px; }
+  .eq-q .code { font-size: 11px; color: var(--gris); min-width: 34px; }
+  .eq-q .new { color: var(--ok); }
+  .eq-rel { margin: 4px 0 0 76px; }
+  .eq-rel input { font-size: 13px; }
+  .eq-add { border: 1px dashed var(--ligne); background: var(--fond); border-radius: 6px; padding: 4px 10px; font-size: 12px; color: var(--gris); margin: 6px 0 0 30px; }
+  .eq-add:hover { color: var(--rouge); border-color: var(--rouge); }
+  .eq-add.rel { margin-left: 76px; }
+  .eq-add.sec { margin-left: 18px; }
+  .eq-add.part { margin-left: 0; margin-top: 18px; }
+  .eq-grip { cursor: grab; color: #c5c5cc; padding: 0 2px; user-select: none; flex: none; font-size: 15px; line-height: 1; }
+  .eq-grip:hover { color: var(--rouge); }
+  .eq-dragging { opacity: .4; }
+  .eq-drop-before { box-shadow: 0 -3px 0 var(--rouge); }
+  .eq-drop-after { box-shadow: 0 3px 0 var(--rouge); }
+  .eq-drop-into { outline: 2px dashed var(--rouge); outline-offset: 2px; }
   #lightbox { cursor: zoom-out; }
   #lightbox img { max-width: 94vw; max-height: 90vh; border-radius: 8px; background: #fff; }
   .toast { position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%); background: var(--encre); color: #fff; padding: 10px 18px; border-radius: 10px; font-size: 14px; z-index: 30; opacity: 0; transition: opacity .3s; pointer-events: none; }
@@ -298,6 +341,7 @@
         <button id="btnRel" class="check">Relances visibles <kbd>R</kbd></button>
         <button id="btnClient" class="check">Masquer les réponses à l'écran projeté <kbd>C</kbd></button>
         <button id="btnFull">Plein écran <kbd>F</kbd></button>
+        <button id="btnEditQ" hidden>✎ Modifier les questions <kbd>Q</kbd></button>
         <button id="btnDelPage" hidden class="danger">Supprimer cette page <kbd>Suppr</kbd></button>
         <hr>
         <button id="btnHelp">Raccourcis clavier <kbd>?</kbd></button>
@@ -351,6 +395,7 @@
     <tr><td><kbd>S</kbd></td><td>Synthèse (décisions, actions, risques…), aussi affichée à l'écran projeté</td></tr>
     <tr><td><kbd>R</kbd> · <kbd>C</kbd> · <kbd>M</kbd> · <kbd>F</kbd></td><td>Relances · masquer les réponses à l'écran projeté · sommaire · plein écran</td></tr>
     <tr><td><kbd>T</kbd></td><td>Démarrer / mettre en pause le chronomètre</td></tr>
+    <tr><td><kbd>Q</kbd></td><td>Modifier les questions et l'en-tête de l'atelier (questions.md réécrit, notes conservées)</td></tr>
     <tr><td><kbd>N</kbd></td><td>Nouvelle page libre (sujet hors questions, ou page suivante en notes libres)</td></tr>
     <tr><td><kbd>Suppr</kbd></td><td>Supprimer la page libre affichée (confirmation si elle contient des notes)</td></tr>
   </table>
@@ -363,6 +408,15 @@
     <tr><td><kbd>Ctrl</kbd>+<kbd>V</kbd></td><td>Coller une image (capture d'écran, photo copiée)</td></tr>
     <tr><td><kbd>Échap</kbd></td><td>Sortir du champ</td></tr>
   </table>
+</div></div>
+<div class="overlay" id="editQ"><div class="panel">
+  <div class="eq-head">
+    <h2>Modifier les questions</h2>
+    <button class="icon-btn" id="eqCancel">Annuler</button>
+    <button class="icon-btn on" id="eqSave" style="background:var(--rouge);border-color:var(--rouge)">Enregistrer</button>
+    <div class="note" id="eqNote"></div>
+  </div>
+  <div class="eq-body" id="eqBody"></div>
 </div></div>
 <div class="overlay" id="ask"><div class="panel" style="max-width:620px">
   <h2 id="askTitle"></h2><p class="sub" id="askText" style="white-space:pre-line;font-size:15px"></p>
@@ -420,6 +474,8 @@
         $("photos").innerHTML = m.photos.map((p) => `<div class="photo"><img src="${p.src}" alt=""><span class="cap">${esc(p.caption)}</span></div>`).join("");
         $("projPos").textContent = String(q.num).padStart(2, "0") + ".";
         document.body.classList.toggle("client", !!m.hideAnswers);
+      } else if (m.type === "recharger") { // questions modifiées : la fenêtre d'animation se recharge aussi
+        setTimeout(() => location.reload(), 1500);
       } else if (m.type === "synth") {
         if (m.html) { $("synthPanel").innerHTML = m.html; $("synth").classList.add("show"); }
         else $("synth").classList.remove("show");
@@ -811,7 +867,7 @@
     $("synth").classList.add("show");
     post({ type: "synth", html });
   }
-  document.querySelectorAll(".overlay:not(#ask):not(#stopped)").forEach((o) => o.addEventListener("click", (e) => {
+  document.querySelectorAll(".overlay:not(#ask):not(#stopped):not(#editQ)").forEach((o) => o.addEventListener("click", (e) => {
     if (e.target === o || e.target.hasAttribute("data-close") || o.id === "lightbox") closeOverlay(o);
   }));
   function closeOverlay(o) { o.classList.remove("show"); if (o.id === "synth") post({ type: "synth", html: null }); }
@@ -847,7 +903,12 @@
       hideAnswers: document.body.classList.contains("hide-proj"),
     });
   }
-  window.addEventListener("message", (e) => { if (e.data && e.data.type === "hello" && e.source === proj) sendProjection(); });
+  window.addEventListener("message", (e) => {
+    if (!e.data || e.data.type !== "hello") return;
+    // Après un rechargement de cette page, l'écran projeté encore ouvert se raccroche.
+    try { if ((!proj || proj.closed) && e.source && e.source.location.pathname === location.pathname && /vue=projection/.test(e.source.location.search)) proj = e.source; } catch (err) { /* autre origine */ }
+    if (e.source === proj) sendProjection();
+  });
 
   // ---------- Exports ----------
   const baseName = () => `${SLUG}_${stamp()}`;
@@ -989,12 +1050,227 @@
   if (pref("hideRel") === "1") document.body.classList.add("hide-relances");
   $("btnRel").classList.toggle("on", !document.body.classList.contains("hide-relances"));
 
+  // ---------- Modifier les questions (questions.md réécrit par Greffier) ----------
+  // Chaque question du brouillon garde son id d'origine (null si nouvelle) : à l'enregistrement,
+  // les notes suivent leur question même si elle a été déplacée, et une question retirée
+  // avec des notes devient une page libre.
+  $("btnEditQ").hidden = LIBRE || !/^https?:$/.test(location.protocol);
+  const META_EDIT = [["atelier", "Atelier"], ["client", "Client"], ["mission", "Mission"], ["animateurs", "Animateurs"], ["contexte", "Contexte (pour le compte rendu)"]];
+  let draft = null;
+  // Même règle que FormatQuestions (atelier.go) : texte sur une ligne, « * » ou « ★ » en tête retiré d'une question non prioritaire.
+  function texteQ(q) {
+    let t = q.text.split(/\s+/).filter(Boolean).join(" ");
+    if (!q.star) while ((t.startsWith("*") && !t.startsWith("**")) || t.startsWith("★")) t = t.replace(/^★|^\*/, "").trim();
+    return t;
+  }
+  const codeSec = (pi, si) => String.fromCharCode(65 + pi) + (si + 1);
+  function openEditQ() {
+    draft = {
+      meta: Object.fromEntries(META_EDIT.map(([k]) => [k, DATA.meta[k] || ""])),
+      parts: DATA.parts.map((p) => ({ title: p.title, sections: p.sections.map((s) => ({
+        title: s.title, minutes: s.minutes || "", cible: s.cible, etape: s.etape,
+        questions: s.questions.map((q) => ({ id: q.id, text: q.text, star: q.star, relances: [...q.relances] })),
+      })) })),
+    };
+    $("eqNote").className = "note";
+    $("eqNote").textContent = "Les notes déjà prises suivent leur question. L'ancien questions.md est gardé dans sorties/historique/.";
+    renderEditQ();
+    $("editQ").classList.add("show");
+  }
+  const notesDe = (id) => id && isAnswered(store.get(id));
+  // Déplace l'élément i de la liste listes[li] d'un cran ; au bord, il passe dans la liste voisine.
+  function deplacer(listes, li, i, sens) {
+    const l = listes[li], j = i + sens;
+    if (j >= 0 && j < l.length) { [l[i], l[j]] = [l[j], l[i]]; return; }
+    const voisine = listes[li + sens];
+    if (!voisine) return;
+    const [x] = l.splice(i, 1);
+    if (sens < 0) voisine.push(x); else voisine.unshift(x);
+  }
+  function renderEditQ() {
+    const body = $("eqBody");
+    const scroll = $("editQ").querySelector(".panel").scrollTop;
+    const h = [];
+    h.push(`<div class="eq-meta">${META_EDIT.map(([k, l]) => k === "contexte"
+      ? `<label class="wide">${l}<textarea data-meta="${k}">${esc(draft.meta[k])}</textarea></label>`
+      : `<label>${l}<input data-meta="${k}" value="${esc(draft.meta[k])}"></label>`).join("")}</div>`);
+    const toutesSections = draft.parts.flatMap((p) => p.sections);
+    draft.parts.forEach((p, pi) => {
+      h.push(`<div class="eq-part" data-dp="${pi}"><div class="eq-row"><span class="code">${String.fromCharCode(65 + pi)}</span>
+        <input class="grow" data-f="part" data-p="${pi}" value="${esc(p.title)}" placeholder="Titre de la partie (ex. Partie A — Cadrage (1 h))">
+        <button class="eq-x" data-act="partUp" data-p="${pi}" title="Monter" ${pi ? "" : "disabled"}>↑</button>
+        <button class="eq-x" data-act="partDown" data-p="${pi}" title="Descendre" ${pi < draft.parts.length - 1 ? "" : "disabled"}>↓</button>
+        <button class="eq-x" data-act="partDel" data-p="${pi}" title="Supprimer la partie">✕</button></div>`);
+      p.sections.forEach((s, si) => {
+        const at = `data-p="${pi}" data-s="${si}"`;
+        const g = toutesSections.indexOf(s);
+        h.push(`<div class="eq-sec" data-dp="${pi}" data-ds="${si}"><div class="eq-row"><span class="eq-grip" draggable="true" data-drag="s" title="Glisser pour déplacer la section">⠿</span><span class="code">${codeSec(pi, si)}</span>
+          <input class="grow" data-f="title" ${at} value="${esc(s.title)}" placeholder="Titre de la section">
+          <input class="tiny" data-f="minutes" ${at} value="${esc(s.minutes)}" placeholder="min" title="Durée en minutes" inputmode="numeric">
+          <input class="small" data-f="cible" ${at} value="${esc(s.cible)}" placeholder="cible" title="Public visé (ex. CODIR)">
+          <input class="tiny" data-f="etape" ${at} value="${esc(s.etape)}" placeholder="étape" title="Étape">
+          <button class="eq-x" data-act="secUp" ${at} title="Monter" ${g ? "" : "disabled"}>↑</button>
+          <button class="eq-x" data-act="secDown" ${at} title="Descendre" ${g < toutesSections.length - 1 ? "" : "disabled"}>↓</button>
+          <button class="eq-x" data-act="secDel" ${at} title="Supprimer la section">✕</button></div>`);
+        const toutesQ = draft.parts.flatMap((pp) => pp.sections.flatMap((ss) => ss.questions));
+        s.questions.forEach((q, qi) => {
+          const aq = `${at} data-q="${qi}"`;
+          const gq = toutesQ.indexOf(q);
+          h.push(`<div class="eq-q" data-dp="${pi}" data-ds="${si}" data-dq="${qi}"><div class="eq-row"><span class="eq-grip" draggable="true" data-drag="q" title="Glisser pour déplacer la question">⠿</span>
+            <span class="code${q.id ? "" : " new"}" title="${q.id ? `Question d'origine ${esc(q.id)}${notesDe(q.id) ? " (avec notes)" : ""}` : "Nouvelle question"}">${q.id ? esc(q.id) + (notesDe(q.id) ? " ✎" : "") : "nouv."}</span>
+            <button class="eq-x eq-star${q.star ? " on" : ""}" data-act="star" ${aq} title="Question prioritaire">★</button>
+            <input class="grow" data-f="text" ${aq} value="${esc(q.text)}" placeholder="Texte de la question">
+            <button class="eq-x" data-act="qUp" ${aq} title="Monter (passe dans la section précédente)" ${gq ? "" : "disabled"}>↑</button>
+            <button class="eq-x" data-act="qDown" ${aq} title="Descendre (passe dans la section suivante)" ${gq < toutesQ.length - 1 ? "" : "disabled"}>↓</button>
+            <button class="eq-x" data-act="qDel" ${aq} title="Supprimer la question">✕</button></div>`);
+          q.relances.forEach((r, ri) => h.push(`<div class="eq-rel eq-row">
+            <input class="grow" data-f="relance" ${aq} data-r="${ri}" value="${esc(r)}" placeholder="Relance">
+            <button class="eq-x" data-act="relDel" ${aq} data-r="${ri}" title="Supprimer la relance">✕</button></div>`));
+          h.push(`<button class="eq-add rel" data-act="relAdd" ${aq}>＋ relance</button></div>`);
+        });
+        h.push(`<button class="eq-add" data-act="qAdd" ${at}>＋ Question</button></div>`);
+      });
+      h.push(`<button class="eq-add sec" data-act="secAdd" data-p="${pi}">＋ Section</button></div>`);
+    });
+    h.push(`<button class="eq-add part" data-act="partAdd">＋ Partie</button>`);
+    body.innerHTML = h.join("");
+    $("editQ").querySelector(".panel").scrollTop = scroll;
+  }
+  $("eqBody").addEventListener("input", (e) => {
+    const d = e.target.dataset;
+    if (d.meta) { draft.meta[d.meta] = e.target.value; return; }
+    const p = draft.parts[+d.p], s = p && p.sections[+d.s], q = s && s.questions[+d.q];
+    if (d.f === "part") p.title = e.target.value;
+    else if (d.f === "text") q.text = e.target.value;
+    else if (d.f === "relance") q.relances[+d.r] = e.target.value;
+    else if (d.f) s[d.f] = e.target.value;
+  });
+  $("eqBody").addEventListener("click", async (e) => {
+    const b = e.target.closest("[data-act]");
+    if (!b) return;
+    const d = b.dataset, pi = +d.p, si = +d.s, qi = +d.q;
+    const p = draft.parts[pi], s = p && p.sections[si], q = s && s.questions[qi];
+    const sections = draft.parts.map((pp) => pp.sections);
+    const avecNotes = (qs) => qs.filter((x) => notesDe(x.id)).length;
+    const confirmer = async (n, quoi) => !n || ask(`Supprimer ${quoi} ?`,
+      `${n} question(s) ont déjà des notes : elles ne sont pas perdues, elles deviendront des pages libres « (question retirée) … » à l'enregistrement.`,
+      "Supprimer", "Garder");
+    let focus = null;
+    switch (d.act) {
+      case "star": q.star = !q.star; break;
+      case "qAdd": s.questions.push({ id: null, text: "", star: false, relances: [] }); focus = `[data-f="text"][data-p="${pi}"][data-s="${si}"][data-q="${s.questions.length - 1}"]`; break;
+      case "qDel": if (await confirmer(avecNotes([q]), "cette question")) s.questions.splice(qi, 1); break;
+      case "qUp": case "qDown": {
+        // à plat sur toutes les sections : au bord d'une section, la question passe dans la voisine
+        const listes = draft.parts.flatMap((pp) => pp.sections.map((ss) => ss.questions));
+        deplacer(listes, listes.indexOf(s.questions), qi, d.act === "qUp" ? -1 : 1);
+        break;
+      }
+      case "relAdd": q.relances.push(""); focus = `[data-f="relance"][data-p="${pi}"][data-s="${si}"][data-q="${qi}"][data-r="${q.relances.length - 1}"]`; break;
+      case "relDel": q.relances.splice(+d.r, 1); break;
+      case "secAdd": p.sections.push({ title: "", minutes: "", cible: "", etape: "", questions: [] }); focus = `[data-f="title"][data-p="${pi}"][data-s="${p.sections.length - 1}"]`; break;
+      case "secDel": if (await confirmer(avecNotes(s.questions), `la section ${codeSec(pi, si)}`)) p.sections.splice(si, 1); break;
+      case "secUp": case "secDown": deplacer(sections, pi, si, d.act === "secUp" ? -1 : 1); break;
+      case "partAdd": draft.parts.push({ title: "", sections: [] }); focus = `[data-f="part"][data-p="${draft.parts.length - 1}"]`; break;
+      case "partDel": if (await confirmer(avecNotes(p.sections.flatMap((x) => x.questions)), "cette partie")) draft.parts.splice(pi, 1); break;
+      case "partUp": case "partDown": deplacer([draft.parts], 0, pi, d.act === "partUp" ? -1 : 1); break;
+    }
+    renderEditQ();
+    if (focus) { const el = $("eqBody").querySelector(focus); if (el) el.focus(); }
+  });
+  // Glisser-déposer (poignée ⠿) : une question sur une autre question (avant / après) ou dans une section,
+  // une section sur une autre section ou dans une partie. Les flèches ↑↓ restent pour le clavier et le tactile.
+  let glisse = null, cible = null;
+  const zoneDe = (el) => el.closest(glisse.type === "q" ? ".eq-q" : ".eq-sec");
+  const conteneurDe = (el) => el.closest(glisse.type === "q" ? ".eq-sec" : ".eq-part");
+  function marquer(el, cls) {
+    $("eqBody").querySelectorAll(".eq-drop-before, .eq-drop-after, .eq-drop-into").forEach((x) => x.classList.remove("eq-drop-before", "eq-drop-after", "eq-drop-into"));
+    if (el) el.classList.add(cls);
+  }
+  $("eqBody").addEventListener("dragstart", (e) => {
+    const g = e.target.closest && e.target.closest("[data-drag]");
+    if (!g) return;
+    const bloc = g.closest(g.dataset.drag === "q" ? ".eq-q" : ".eq-sec");
+    glisse = { type: g.dataset.drag, p: +bloc.dataset.dp, s: +bloc.dataset.ds, q: +bloc.dataset.dq, bloc };
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", "");
+    e.dataTransfer.setDragImage(bloc, 20, 16);
+    setTimeout(() => bloc.classList.add("eq-dragging"));
+  });
+  $("eqBody").addEventListener("dragover", (e) => {
+    if (!glisse) return;
+    const z = zoneDe(e.target), c = z ? null : conteneurDe(e.target);
+    if (z && !(glisse.bloc.contains(z))) {
+      const r = z.getBoundingClientRect(), apres = e.clientY > r.top + r.height / 2;
+      cible = { el: z, apres };
+      marquer(z, apres ? "eq-drop-after" : "eq-drop-before");
+    } else if (c && !glisse.bloc.contains(c)) {
+      cible = { el: c, dedans: true };
+      marquer(c, "eq-drop-into");
+    } else { cible = null; marquer(null); return; }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  });
+  $("eqBody").addEventListener("drop", (e) => {
+    if (!glisse || !cible) return;
+    e.preventDefault();
+    const d = cible.el.dataset;
+    const listeDe = (p, s) => (glisse.type === "q" ? draft.parts[p].sections[s].questions : draft.parts[p].sections);
+    const src = glisse.type === "q" ? listeDe(glisse.p, glisse.s) : listeDe(glisse.p);
+    const iSrc = glisse.type === "q" ? glisse.q : glisse.s;
+    let dest, iDest;
+    if (cible.dedans) { dest = glisse.type === "q" ? listeDe(+d.dp, +d.ds) : listeDe(+d.dp); iDest = dest.length; }
+    else { dest = glisse.type === "q" ? listeDe(+d.dp, +d.ds) : listeDe(+d.dp); iDest = (glisse.type === "q" ? +d.dq : +d.ds) + (cible.apres ? 1 : 0); }
+    const [x] = src.splice(iSrc, 1);
+    if (src === dest && iSrc < iDest) iDest--;
+    dest.splice(iDest, 0, x);
+    renderEditQ();
+  });
+  $("eqBody").addEventListener("dragend", () => {
+    if (glisse) glisse.bloc.classList.remove("eq-dragging");
+    glisse = cible = null;
+    marquer(null);
+  });
+  $("eqCancel").onclick = () => $("editQ").classList.remove("show");
+  async function saveEditQ() {
+    // Ids après enregistrement : sections renumérotées, questions vides ignorées (comme FormatQuestions).
+    const map = {}, gardees = new Set();
+    const parts = draft.parts.map((p, pi) => ({
+      title: p.title,
+      sections: p.sections.map((s, si) => {
+        const questions = s.questions.filter((q) => texteQ(q));
+        questions.forEach((q, qi) => { if (q.id) { map[q.id] = `${codeSec(pi, si)}-${qi + 1}`; gardees.add(q.id); } });
+        return { title: s.title, minutes: parseInt(s.minutes, 10) || 0, cible: s.cible, etape: s.etape,
+          questions: questions.map((q) => ({ text: q.text, star: q.star, relances: q.relances })) };
+      }),
+    }));
+    const orphelins = QS.filter((q) => !q.libre && !gardees.has(q.id)).map((q) => ({ id: q.id, text: q.text }));
+    $("eqSave").disabled = true;
+    try {
+      await saver.flush("avant-questions");
+      const r = await fetch("api/questions", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ meta: draft.meta, parts }) });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).erreur || `HTTP ${r.status}`);
+      const cur = QS[idx] && QS[idx].id;
+      const complete = store.renameIds(map, orphelins);
+      await saver.flush();
+      post({ type: "recharger" });
+      history.replaceState(null, "", "#" + (complete[cur] || cur));
+      location.reload();
+    } catch (err) {
+      $("eqNote").className = "note err";
+      $("eqNote").textContent = "Non enregistré : " + err.message;
+      $("eqSave").disabled = false;
+    }
+  }
+  $("eqSave").onclick = saveEditQ;
+  $("btnEditQ").onclick = openEditQ;
+
   // ---------- Clavier ----------
-  const editing = () => ["TEXTAREA", "INPUT"].includes(document.activeElement.tagName);
+  const editing =() => ["TEXTAREA", "INPUT"].includes(document.activeElement.tagName);
   document.addEventListener("keydown", (e) => {
     if (e.key === "PageDown") { e.preventDefault(); go(idx + 1); return; }
     if (e.key === "PageUp") { e.preventDefault(); go(idx - 1); return; }
-    if (anyOverlay()) { if (e.key === "Escape") closeOverlay(anyOverlay()); return; }
+    if (anyOverlay()) { if (e.key === "Escape" && anyOverlay().id !== "editQ") closeOverlay(anyOverlay()); return; }
     if (editing()) {
       if (e.key === "Escape") { document.activeElement.blur(); e.preventDefault(); }
       else if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && e.shiftKey) { e.preventDefault(); newPage(); }
@@ -1024,6 +1300,7 @@
     else if (k === "f") $("btnFull").click();
     else if (k === "t") toggleChrono();
     else if (k === "n") { e.preventDefault(); newPage(); }
+    else if (k === "q" && !$("btnEditQ").hidden) { e.preventDefault(); openEditQ(); }
     else if (e.key === "Delete" && QS[idx].libre) removePage();
     else if (e.key === "?") $("help").classList.add("show");
   });
