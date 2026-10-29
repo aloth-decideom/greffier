@@ -1,7 +1,7 @@
 package main
 
-// Transcription locale de l'enregistrement avec whisper.cpp (whisper-cli, installé sur le poste) :
-// rien ne quitte l'ordinateur. Le modèle est téléchargé une fois dans le cache de l'utilisateur.
+// Transcription locale de l'enregistrement avec whisper.cpp (whisper-cli, téléchargé au premier
+// usage s'il n'est pas installé : whisper.go) : rien ne quitte l'ordinateur. Le modèle est téléchargé une fois dans le cache de l'utilisateur.
 // Chaque segment donne audio/<segment>.json ; sorties/transcription.md les assemble, découpée
 // par question ou par page grâce aux repères posés par la page pendant l'enregistrement.
 
@@ -667,9 +667,8 @@ func (t *transcripteur) verrou() func() {
 // Lancer démarre la transcription de l'atelier dir (sans effet si elle tourne déjà pour lui).
 // arret : fermé à l'arrêt de l'application, qui interrompt whisper-cli.
 func (t *transcripteur) Lancer(dir string, arret <-chan struct{}) error {
-	whisper := cheminWhisper()
-	if whisper == "" {
-		return errors.New("whisper-cli introuvable : installer whisper.cpp (voir le README)")
+	if !whisperDisponible() {
+		return errors.New("whisper.cpp n'existe pas pour ce système : l'installer à la main (voir le README)")
 	}
 	t.mu.Lock()
 	if t.etat.EnCours {
@@ -694,7 +693,7 @@ func (t *transcripteur) Lancer(dir string, arret <-chan struct{}) error {
 			}
 		}()
 		debut := time.Now()
-		err := t.executer(ctx, dir, whisper)
+		err := t.executer(ctx, dir)
 		t.maj(func(e *EtatTranscription) {
 			*e = EtatTranscription{Etape: "Transcription terminée", Pourcent: 100}
 			if err != nil {
@@ -721,8 +720,16 @@ func dureeLisible(s float64) string {
 	return fmt.Sprintf("%d h %02d", m/60, m%60)
 }
 
-func (t *transcripteur) executer(ctx context.Context, dir, whisper string) error {
+func (t *transcripteur) executer(ctx context.Context, dir string) error {
 	sorties := filepath.Join(dir, "sorties")
+	whisper, err := assurerWhisper(ctx, func(p int) {
+		t.maj(func(e *EtatTranscription) {
+			e.Etape, e.Pourcent = "Téléchargement de whisper.cpp (une seule fois)", p
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("installation de whisper.cpp : %w", err)
+	}
 	t.maj(func(e *EtatTranscription) { e.Etape = "Modèle de transcription" })
 	modele, err := assurerModele(ctx, func(p int) {
 		t.maj(func(e *EtatTranscription) {

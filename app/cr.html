@@ -202,7 +202,7 @@
       if (e.erreur) h += `<span class="warn">⚠ ${esc(e.erreur)}</span>`;
       if (enCours) h += `<span class="warn">Enregistrement en cours</span>`;
       if (aFaire && r.whisper) h += `<button id="bTranscrire" title="Transcription sur ce poste avec whisper.cpp : rien n'est envoyé sur internet">🎙 Transcrire${r.transcription ? " la suite" : ""}</button>`;
-      if (aFaire && !r.whisper) h += `<span class="warn">Transcription impossible : whisper.cpp n'est pas installé (voir le README de Greffier)</span>`;
+      if (aFaire && !r.whisper) h += `<span class="warn">Transcription indisponible sur ce système : installer whisper.cpp (voir le README de Greffier)</span>`;
       if (r.transcription) h += `<span class="ok">✓ Transcription jointe au prompt</span><a href="api/transcription.md" target="_blank" title="sorties/transcription.md">Lire la transcription</a>`;
       if (r.transcription && r.segments.length && !aFaire && !enCours) h += `<button id="bSupprAudio" title="Déplace l'audio dans sorties/audio/supprimes/ ; la transcription reste">Supprimer l'audio</button>`;
     }

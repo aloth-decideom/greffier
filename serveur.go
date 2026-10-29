@@ -768,7 +768,7 @@ func (s *Serveur) api(w http.ResponseWriter, r *http.Request, dir, route string)
 			total += sg.Secondes
 		}
 		_, errT := os.Stat(filepath.Join(sorties, "transcription.md"))
-		writeJSON(w, http.StatusOK, map[string]any{"segments": segments, "secondes": total, "whisper": cheminWhisper() != "",
+		writeJSON(w, http.StatusOK, map[string]any{"segments": segments, "secondes": total, "whisper": whisperDisponible(),
 			"transcription": errT == nil, "etat": s.Transcr.Etat(dir)})
 
 	case route == "audio" && r.Method == http.MethodDelete:
@@ -807,7 +807,7 @@ func (s *Serveur) api(w http.ResponseWriter, r *http.Request, dir, route string)
 			s.mu.Lock()
 			err = ajouterAudio(sorties, seg, data, voies)
 			s.mu.Unlock()
-			if err == nil && !transcriptionDirecteDesactivee && cheminWhisper() != "" {
+			if err == nil && !transcriptionDirecteDesactivee && whisperDisponible() {
 				_ = s.Transcr.Lancer(dir, s.Arret) // transcription au fil de l'enregistrement (sans effet si déjà lancée)
 			}
 		case fin == "extrait" && r.Method == http.MethodGet:
