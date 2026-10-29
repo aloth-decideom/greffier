@@ -1,0 +1,59 @@
+# Compile whisper-cli (whisper.cpp) pour macOS, que whisper.cpp ne publie pas, et le publie en
+# pré-release de ce dépôt (ignorée par la mise à jour de Greffier, qui ne regarde que la dernière
+# release) : Greffier le télécharge au premier enregistrement (whisper.go), sommes de contrôle vérifiées.
+# Lancement, une fois par version de whisper.cpp (WHISPER_REF) :
+#   git tag outils-whisper-b5454 && git push origin outils-whisper-b5454
+# puis reporter les sommes de SHA256SUMS.txt dans archivesWhisper (whisper.go).
+name: whisper-cli macOS
+
+on:
+  push:
+    tags: ["outils-whisper-*"]
+
+permissions:
+  contents: write   # nécessaire pour publier la pré-release
+
+env:
+  WHISPER_REF: b5454
+
+jobs:
+  macos:
+    name: whisper-cli macOS
+    runs-on: macos-latest
+    steps:
+      - name: Compiler (Apple Silicon avec Metal, Intel)
+        run: |
+          git clone --depth 1 --branch "$WHISPER_REF" https://github.com/ggml-org/whisper.cpp src
+          for arch in arm64 x86_64; do
+            if [ "$arch" = arm64 ]; then
+              options="-DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON"
+            else   # Mac Intel : processeur seul, AVX2 (Mac de 2013 et après)
+              options="-DGGML_METAL=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON"
+            fi
+            cmake -S src -B "build-$arch" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF \
+              -DCMAKE_OSX_ARCHITECTURES="$arch" -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DWHISPER_BUILD_TESTS=OFF $options
+            cmake --build "build-$arch" -j --config Release --target whisper-cli
+            mkdir -p "whisper-cli-macos-$arch"
+            cp "build-$arch/bin/whisper-cli" src/LICENSE "whisper-cli-macos-$arch/"
+            tar czf "whisper-cli-macos-$arch.tar.gz" "whisper-cli-macos-$arch"
+          done
+          file whisper-cli-macos-*/whisper-cli
+          otool -L whisper-cli-macos-arm64/whisper-cli
+          shasum -a 256 whisper-cli-macos-*.tar.gz | tee SHA256SUMS.txt
+          ls -l whisper-cli-macos-*.tar.gz
+
+      - name: Vérifier (options utilisées par Greffier)
+        run: |
+          aide="$(./whisper-cli-macos-arm64/whisper-cli --help 2>&1)"
+          for o in --vad-model --diarize --output-json --print-progress; do
+            echo "$aide" | grep -q -- "$o" || { echo "option absente : $o"; exit 1; }
+          done
+
+      - name: Publier (pré-release)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" whisper-cli-macos-*.tar.gz SHA256SUMS.txt \
+            --repo "${{ github.repository }}" --prerelease --latest=false \
+            --title "whisper-cli $WHISPER_REF pour macOS (outil de Greffier)" \
+            --notes "whisper-cli de [whisper.cpp](https://github.com/ggml-org/whisper.cpp) ($WHISPER_REF, licence MIT) compilé pour macOS. Téléchargé automatiquement par Greffier au premier enregistrement : rien à faire."
