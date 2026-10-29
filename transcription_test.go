@@ -30,7 +30,7 @@ func TestTranscriptMarkdown(t *testing.T) {
 		{Seg: "autre", T: 0, ID: "Z9-9"},
 	}
 	titres := map[string]string{"A1-1": "Quelle vision ?", "B1-1": "Quel existant ?", "P2": "Budget"}
-	md := transcriptMarkdown(segs, reperes, titres)
+	md := transcriptMarkdown(segs, reperes, titres, "")
 
 	attendus := []string{
 		"**Enregistrement 1 — 12/10/2026 à 14:00**",
@@ -59,7 +59,7 @@ func TestTranscriptSansRepere(t *testing.T) {
 	segs := []segmentTranscrit{{ID: "nom-libre", Morceaux: []morceau{
 		{0, 1000, " Un.", ""}, {1200, 2000, " Deux.", ""}, {5000, 6000, " Trois, après un silence.", ""},
 	}}}
-	md := transcriptMarkdown(segs, nil, nil)
+	md := transcriptMarkdown(segs, nil, nil, "")
 	if strings.Contains(md, "## ") {
 		t.Errorf("pas de titre attendu sans repère :\n%s", md)
 	}
@@ -186,12 +186,12 @@ func TestLirePlage(t *testing.T) {
 
 func TestTranscriptVoies(t *testing.T) {
 	segs := []segmentTranscrit{{ID: "seg-20261029-100000", Morceaux: []morceau{
-		{0, 2000, " Bonjour, vous m'entendez ?", "0"},
-		{2000, 3000, " Oui, très bien.", "1"},
-		{3000, 4000, " Parfait.", "1"},
-		{4000, 5000, " On parle ensemble.", "?"},
+		{0, 2000, " Bonjour, vous m'entendez ?", "Micro"},
+		{2000, 3000, " Oui, très bien.", "Visio"},
+		{3000, 4000, " Parfait.", "Visio"},
+		{4000, 5000, " On parle ensemble.", "Micro ou visio"},
 	}}}
-	md := transcriptMarkdown(segs, nil, nil)
+	md := transcriptMarkdown(segs, nil, nil, legendeVisio)
 	for _, a := range []string{
 		"**Micro** = voix captées",
 		"[10:00:00] **Micro** : Bonjour, vous m'entendez ?\n",
@@ -202,7 +202,7 @@ func TestTranscriptVoies(t *testing.T) {
 			t.Errorf("absent : %q\n---\n%s", a, md)
 		}
 	}
-	if md := transcriptMarkdown([]segmentTranscrit{{ID: "seg-20261029-100000", Morceaux: []morceau{{0, 1000, " Seul.", ""}}}}, nil, nil); strings.Contains(md, "**Micro**") {
+	if md := transcriptMarkdown([]segmentTranscrit{{ID: "seg-20261029-100000", Morceaux: []morceau{{0, 1000, " Seul.", ""}}}}, nil, nil, ""); strings.Contains(md, "**Micro") {
 		t.Errorf("enregistrement mono : pas de voies\n%s", md)
 	}
 }

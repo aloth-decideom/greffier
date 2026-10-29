@@ -17,6 +17,7 @@ package main
 //   /a/<slug>/api/cr-claude compte rendu rédigé par Claude Code (ia.go)
 //   /a/<slug>/api/questions questions et en-tête modifiés dans la page (questions.md réécrit)
 //   /a/<slug>/api/audio…    enregistrement du son (audio.go) ; api/transcrire : transcription locale (transcription.go)
+//   /a/<slug>/api/voix      séparation des voix après la réunion, noms donnés à l'écoute (voix.go)
 
 import (
 	"context"
@@ -32,6 +33,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -55,6 +57,7 @@ type Serveur struct {
 	majEnCours atomic.Bool
 	crEnCours  atomic.Bool // une rédaction par Claude à la fois
 	Transcr    transcripteur
+	Voix       separateur
 	Relance    atomic.Bool // nouvelle version installée : main la lance après l'arrêt
 }
 
@@ -62,6 +65,7 @@ func NewServeur(port int) *Serveur {
 	s := &Serveur{origin: fmt.Sprintf("http://127.0.0.1:%d", port), ateliers: map[string]string{}, Arret: make(chan struct{}),
 		Maj: verificateurMaj{info: InfoVersion{Version: version}}}
 	s.Transcr.disque = &s.mu
+	s.Voix.disque = &s.mu
 	return s
 }
 
@@ -806,6 +810,21 @@ func (s *Serveur) api(w http.ResponseWriter, r *http.Request, dir, route string)
 			if err == nil && !transcriptionDirecteDesactivee && cheminWhisper() != "" {
 				_ = s.Transcr.Lancer(dir, s.Arret) // transcription au fil de l'enregistrement (sans effet si déjà lancée)
 			}
+		case fin == "extrait" && r.Method == http.MethodGet:
+			q := r.URL.Query()
+			debut, _ := strconv.ParseFloat(q.Get("debut"), 64)
+			finExtrait, _ := strconv.ParseFloat(q.Get("fin"), 64)
+			voie, _ := strconv.Atoi(q.Get("voie"))
+			s.mu.Lock()
+			wav, err := extraitAudio(sorties, seg, debut, finExtrait, voie)
+			s.mu.Unlock()
+			if err != nil {
+				erreur(w, http.StatusNotFound, err.Error())
+				return
+			}
+			w.Header().Set("Content-Type", "audio/wav")
+			w.Write(wav)
+			return
 		case fin == "fin" && r.Method == http.MethodPost:
 			s.mu.Lock()
 			err = finaliserWAV(sorties, seg)
@@ -817,6 +836,44 @@ func (s *Serveur) api(w http.ResponseWriter, r *http.Request, dir, route string)
 		}
 		if err != nil {
 			erreur(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+
+	case route == "voix" && r.Method == http.MethodGet:
+		v, analyse := lireVoix(sorties)
+		segments := listerSegments(sorties)
+		nouveaux := 0
+		for _, sg := range segments {
+			if !contient(v.Segments, sg.ID) {
+				nouveaux++
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"nemo": nemoDisponible(), "etat": s.Voix.Etat(dir), "analyse": analyse,
+			"utiliser": v.Utiliser, "audio": len(segments) > 0, "nouveaux": nouveaux, "voix": resumerVoix(sorties, v)})
+
+	case route == "voix" && r.Method == http.MethodPost:
+		if err := s.Voix.Lancer(dir, s.Arret, &s.Transcr); err != nil {
+			erreur(w, http.StatusOK, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+
+	case route == "voix" && r.Method == http.MethodPut:
+		var p struct {
+			Noms     map[string]string `json:"noms"`
+			Mixtes   map[string]bool   `json:"mixtes"`
+			Utiliser bool              `json:"utiliser"`
+		}
+		if err := json.NewDecoder(io.LimitReader(r.Body, maxBody)).Decode(&p); err != nil {
+			erreur(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.mu.Lock()
+		err := majVoix(dir, p.Noms, p.Mixtes, p.Utiliser)
+		s.mu.Unlock()
+		if err != nil {
+			erreur(w, http.StatusOK, err.Error())
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})

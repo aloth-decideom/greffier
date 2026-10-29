@@ -45,6 +45,34 @@
   .audio .ok { color: var(--ok); }
   .audio a { color: var(--rouge); }
   .audio progress { flex: 1 1 120px; accent-color: var(--rouge); }
+  .audio .aide { font-size: 12px; color: var(--gris); }
+
+  /* ---------- Voix : noms donnés à l'écoute ---------- */
+  dialog.voix { width: min(880px, 94vw); max-height: 90vh; padding: 0; border: 0; border-radius: 10px; box-shadow: 0 10px 40px rgba(0,0,0,.25); color: var(--texte); }
+  dialog.voix::backdrop { background: rgba(20,20,30,.45); }
+  dialog.voix form { display: flex; flex-direction: column; max-height: 90vh; }
+  dialog.voix header { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--ligne); font-family: var(--font-titre); color: var(--encre); font-size: 15px; }
+  dialog.voix header .x { margin-left: auto; border: 0; background: none; font-size: 16px; color: var(--gris); }
+  dialog.voix .aide { margin: 0; padding: 10px 18px; font-size: 12.5px; color: var(--gris); line-height: 1.5; border-bottom: 1px solid var(--ligne); }
+  dialog.voix .aide.warn { color: var(--warn); }
+  #listeVoix { overflow-y: auto; padding: 6px 18px 12px; }
+  .carte-voix { border-bottom: 1px solid var(--ligne); padding: 10px 0; }
+  .carte-voix .tete { display: flex; align-items: center; gap: 10px; }
+  .carte-voix .lib { font-weight: 600; color: var(--encre); min-width: 64px; }
+  .carte-voix .duree { font-size: 12px; color: var(--gris); min-width: 52px; }
+  .carte-voix input[type=text], .carte-voix input:not([type]) { flex: 1; font: inherit; padding: 6px 9px; border: 1px solid var(--ligne); border-radius: 6px; }
+  .carte-voix .mixte { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--gris); white-space: nowrap; cursor: pointer; }
+  .carte-voix input:focus { outline: none; border-color: var(--rouge); }
+  .carte-voix ol { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 2px; }
+  .carte-voix li { display: grid; grid-template-columns: 28px 62px 1fr; gap: 6px; align-items: baseline; font-size: 12.5px; line-height: 1.45; }
+  .carte-voix .play { border: 1px solid var(--ligne); background: var(--fond); border-radius: 50%; width: 24px; height: 24px; padding: 0; font-size: 10px; line-height: 1; }
+  .carte-voix .play:hover, .carte-voix .play.on { border-color: var(--rouge); color: var(--rouge); }
+  .carte-voix .h { color: var(--gris); font-variant-numeric: tabular-nums; }
+  .carte-voix .txt { color: var(--texte); }
+  dialog.voix footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 18px; border-top: 1px solid var(--ligne); font-size: 13px; }
+  dialog.voix footer label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  dialog.voix footer .primary { margin-left: auto; font-family: var(--font-titre); background: var(--rouge); border: 1px solid var(--rouge); color: #fff; font-weight: 600; border-radius: 8px; padding: 7px 14px; }
+  dialog.voix footer .primary:hover { background: var(--rouge-fonce); }
   .status { padding: 8px 18px; font-size: 12px; border-top: 1px solid var(--ligne); display: flex; gap: 14px; flex-wrap: wrap; }
   .status .warn { color: var(--warn); font-weight: 600; }
   .status .ok { color: var(--ok); }
@@ -76,6 +104,7 @@
     <li id="stepAudio" hidden>
       <div class="titre">Transcription de l'enregistrement</div>
       <div class="audio" id="audio"></div>
+      <div class="audio" id="voix" hidden></div>
     </li>
     <li>
       <div class="titre">Rédaction par l'IA</div>
@@ -101,6 +130,20 @@
   <div class="status" id="status"></div>
 </section>
 <section class="preview"><div class="page"><div class="doc" id="doc"></div></div></section>
+<dialog class="voix" id="dlgVoix">
+  <form method="dialog">
+    <header>🗣 Voix de l'enregistrement<button class="x" value="fermer" title="Fermer sans enregistrer">✕</button></header>
+    <p class="aide">Écoute quelques phrases de chaque voix (▶) et écris le nom de la personne. Deux voix de la même personne : même nom, elles sont réunies. Une voix qui mélange plusieurs personnes : cocher « Plusieurs personnes » et écrire leurs noms. Sans nom, la voix reste « Voix N » dans la transcription.</p>
+    <p class="aide warn" id="voixSansAudio" hidden>L'audio a été supprimé : écoute impossible.</p>
+    <div id="listeVoix"></div>
+    <footer>
+      <label title="Chaque paragraphe de la transcription commence par le nom de la personne"><input type="radio" name="modeVoix" value="oui"> Transcription découpée par voix</label>
+      <label title="Si la séparation n'est pas satisfaisante : la transcription reste telle qu'elle était"><input type="radio" name="modeVoix" value="non"> Sans découpage</label>
+      <button type="button" class="primary" id="bVoixOK">Enregistrer</button>
+    </footer>
+  </form>
+  <datalist id="participants"></datalist>
+</dialog>
 
 <script src="questions.js"></script>
 <script src="notes-core.js"></script>
@@ -184,6 +227,104 @@
     majAudio();
   }
   if (/^https?:$/.test(location.protocol)) majAudio();
+
+  // ---------- Séparation des voix (après la réunion) et noms donnés à l'écoute ----------
+  let voixInfo = null, suiviVoix = null;
+  async function majVoix() {
+    let r;
+    try { r = await (await fetch("api/voix")).json(); } catch (e) {
+      if (suiviVoix !== null) { clearTimeout(suiviVoix); suiviVoix = setTimeout(majVoix, 5000); }
+      return;
+    }
+    voixInfo = r;
+    const el = $("voix"), e = r.etat || {};
+    el.hidden = !r.audio && !r.analyse;
+    let h = "";
+    if (e.enCours) h = `<span>🗣 ${esc(e.etape)}…</span><progress max="100" value="${e.pourcent}"></progress>`;
+    else {
+      if (e.erreur) h += `<span class="warn">⚠ ${esc(e.erreur)}</span>`;
+      if (!r.nemo && !r.analyse) h += `<span class="aide">🗣 Séparation des voix indisponible sur ce système</span>`;
+      if (r.nemo && r.audio && (!r.analyse || r.nouveaux)) h += `<button id="bSeparer" title="Une fois la réunion terminée : reconnaît qui parle, sur ce poste (NeMo-Speech de NVIDIA, environ 1/5 de la durée de l'enregistrement). Rien n'est envoyé sur internet ; la première fois, l'outil et son modèle (~115 Mo) sont téléchargés">🗣 ${r.analyse ? `Séparer à nouveau les voix (${r.nouveaux} partie${r.nouveaux > 1 ? "s" : ""} non analysée${r.nouveaux > 1 ? "s" : ""})` : "Séparer les voix"}</button>`;
+      if (r.analyse) h += `<button id="bVoix" title="Écouter chaque voix et lui donner un nom">🗣 Voix (${r.voix.length})</button>` +
+        (r.utiliser ? `<span class="ok">✓ Transcription découpée par voix</span>` : `<span class="aide">Transcription sans découpage par voix</span>`);
+    }
+    el.innerHTML = h;
+    if ($("bSeparer")) $("bSeparer").onclick = separer;
+    if ($("bVoix")) $("bVoix").onclick = ouvrirVoix;
+    clearTimeout(suiviVoix);
+    if (e.enCours) suiviVoix = setTimeout(majVoix, 3000);
+    else if (suiviVoix !== null) {
+      suiviVoix = null;
+      if (!e.erreur && r.analyse) { status(`✓ ${r.voix.length} voix trouvées : écoute-les pour leur donner un nom.`); ouvrirVoix(); }
+    }
+  }
+  async function separer() {
+    if (voixInfo && voixInfo.analyse && !confirm("Séparer à nouveau les voix ? Les voix seront renumérotées : les noms déjà donnés seront à refaire.")) return;
+    const r = await (await fetch("api/voix", { method: "POST" })).json().catch(() => ({ erreur: "Greffier injoignable" }));
+    if (r.erreur) { status("⚠ " + r.erreur); return; }
+    suiviVoix = 0;
+    majVoix();
+  }
+  // Écoute : un passage à la fois
+  const lecteur = new Audio();
+  let boutonLecture = null;
+  const arreterLecture = () => { lecteur.pause(); if (boutonLecture) { boutonLecture.classList.remove("on"); boutonLecture.textContent = "▶"; } boutonLecture = null; };
+  lecteur.onended = arreterLecture;
+  lecteur.onerror = () => { if (boutonLecture) status("⚠ Passage illisible (audio supprimé ?)"); arreterLecture(); };
+  // Heure du passage : début du segment (seg-AAAAMMJJ-HHMMSS) + décalage
+  const heure = (seg, t) => {
+    const m = /^seg-\d{8}-(\d\d)(\d\d)(\d\d)$/.exec(seg);
+    const s = Math.floor((m ? +m[1] * 3600 + +m[2] * 60 + +m[3] : 0) + t);
+    return [Math.floor(s / 3600) % 24, Math.floor(s / 60) % 60, s % 60].map((n) => String(n).padStart(2, "0")).join(":");
+  };
+  function ouvrirVoix() {
+    const r = voixInfo;
+    if (!r || !r.analyse) return;
+    const noms = [...new Set((store.state.meta.participants || "").split(/[,;\n]/).map((s) => s.trim()).filter(Boolean))];
+    $("participants").innerHTML = noms.map((n) => `<option value="${esc(n)}">`).join("");
+    $("voixSansAudio").hidden = r.audio;
+    $("listeVoix").innerHTML = r.voix.map((v) => `<div class="carte-voix">
+        <div class="tete"><span class="lib">${esc(v.libelle)}</span><span class="duree">${duree(v.secondes)}</span>
+          <input type="text" data-voix="${esc(v.id)}" list="participants" placeholder="${v.mixte ? PH_MIXTE : PH_NOM}" value="${esc(v.nom)}">
+          <label class="mixte" title="Le modèle a regroupé plusieurs personnes sous cette voix : la transcription l'indique, sans attribuer les phrases à l'une d'elles"><input type="checkbox" data-mixte="${esc(v.id)}" ${v.mixte ? "checked" : ""}> Plusieurs personnes</label></div>
+        <ol>${v.extraits.map((x) => `<li><button type="button" class="play" title="Écouter ce passage" ${r.audio ? "" : "disabled"}
+            data-src="api/audio/${esc(x.seg)}/extrait?debut=${x.debut}&amp;fin=${Math.min(x.fin, x.debut + 59)}&amp;voie=${x.voie}">▶</button>
+          <span class="h">${heure(x.seg, x.debut)}</span><span class="txt">${esc(x.texte || "(passage sans transcription)")}</span></li>`).join("")}</ol>
+      </div>`).join("");
+    document.querySelector(`input[name=modeVoix][value=${r.utiliser ? "oui" : "non"}]`).checked = true;
+    $("dlgVoix").showModal();
+  }
+  const PH_NOM = "Nom de la personne", PH_MIXTE = "Noms des personnes (ex. Antoine, Anaïs)";
+  $("listeVoix").addEventListener("change", (e) => {
+    const c = e.target.closest("input[data-mixte]");
+    if (c) document.querySelector(`input[data-voix="${CSS.escape(c.dataset.mixte)}"]`).placeholder = c.checked ? PH_MIXTE : PH_NOM;
+  });
+  $("listeVoix").addEventListener("click", (e) => {
+    const b = e.target.closest(".play");
+    if (!b) return;
+    const meme = b === boutonLecture;
+    arreterLecture();
+    if (meme) return;
+    boutonLecture = b;
+    b.classList.add("on"); b.textContent = "■";
+    lecteur.src = b.dataset.src;
+    lecteur.play().catch(() => arreterLecture());
+  });
+  $("dlgVoix").addEventListener("close", arreterLecture);
+  $("bVoixOK").onclick = async () => {
+    const noms = {}, mixtes = {};
+    document.querySelectorAll("#listeVoix input[data-voix]").forEach((i) => { noms[i.dataset.voix] = i.value.trim(); });
+    document.querySelectorAll("#listeVoix input[data-mixte]:checked").forEach((i) => { mixtes[i.dataset.mixte] = true; });
+    const utiliser = document.querySelector("input[name=modeVoix]:checked").value === "oui";
+    const r = await (await fetch("api/voix", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ noms, mixtes, utiliser }) }))
+      .json().catch(() => ({ erreur: "Greffier injoignable" }));
+    if (r.erreur) { status("⚠ " + r.erreur); return; }
+    $("dlgVoix").close();
+    transcription = await fetch("api/transcription.md").then((x) => (x.ok ? x.text() : "")).catch(() => transcription);
+    status(utiliser ? "✓ Transcription découpée par voix, avec les noms donnés : elle est jointe au prompt." : "✓ Transcription sans découpage par voix.");
+    majVoix();
+  };
+  if (/^https?:$/.test(location.protocol)) majVoix();
 
   // ---------- Rédaction par Claude Code (page servie par Greffier seulement) ----------
   if (/^https?:$/.test(location.protocol)) {

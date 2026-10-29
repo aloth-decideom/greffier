@@ -113,7 +113,7 @@ func telechargerModele(ctx context.Context, m modeleWhisper, chemin string, prog
 	if err := os.MkdirAll(filepath.Dir(chemin), 0o755); err != nil {
 		return err
 	}
-	logf("Téléchargement du modèle %s (%d Mo, une seule fois)…", m.Nom, max(m.Taille>>20, 1))
+	logf("Téléchargement de %s (%d Mo, une seule fois)…", m.Nom, max(m.Taille>>20, 1))
 	r, err := requete(ctx, m.Depot+m.Nom)
 	if err != nil {
 		return fmt.Errorf("téléchargement du modèle : %w", err)
@@ -393,7 +393,7 @@ func lancerWhisper(ctx context.Context, whisper string, args []string, progres f
 type morceau struct {
 	DebutMs, FinMs int
 	Texte          string
-	Voie           string // segment stéréo : "0" micro, "1" visio, "?" indéterminé ; "" en mono
+	Qui            string // qui parle : « Micro » ou « Visio » (segment stéréo), le nom d'une voix (voix.go) ; "" inconnu
 }
 
 type segmentTranscrit struct {
@@ -425,7 +425,7 @@ func lireSortieWhisper(chemin string) ([]morceau, error) {
 	}
 	var ms []morceau
 	for _, t := range w.Transcription {
-		ms = append(ms, morceau{DebutMs: t.Offsets.From, FinMs: t.Offsets.To, Texte: t.Text, Voie: t.Speaker})
+		ms = append(ms, morceau{DebutMs: t.Offsets.From, FinMs: t.Offsets.To, Texte: t.Text, Qui: nomsVoies[t.Speaker]})
 	}
 	return ms, nil
 }
@@ -446,19 +446,23 @@ func horodatage(debut time.Time, ok bool, ms int) string {
 	return fmt.Sprintf("%02d:%02d:%02d", s/3600, s/60%60, s%60)
 }
 
-// Voies d'un segment stéréo : qui parle, d'après la voie la plus forte du passage.
+// Voies d'un segment stéréo (whisper-cli --diarize) : qui parle, d'après la voie la plus forte du passage.
 var nomsVoies = map[string]string{"0": "Micro", "1": "Visio", "?": "Micro ou visio"}
 
+const (
+	legendeVisio = "En visio : **Micro** = voix captées par le micro du poste (sur place), **Visio** = participants à distance (son de l'ordinateur), **Micro ou visio** = les deux à la fois ou indiscernables."
+	legendeVoix  = "Voix séparées automatiquement après la réunion (Nemotron 3 Diarization) ; noms donnés à l'écoute par l'animateur. **Voix N** ou **Visio N** : voix non identifiée ; **(plusieurs personnes)** : voix que le modèle n'a pas su séparer, la phrase vient de l'une des personnes nommées sans qu'on sache laquelle ; **?** : plusieurs voix dans la même phrase."
+)
+
 // transcriptMarkdown assemble les segments en un document découpé par question ou page.
-// titres : identifiant → intitulé (question, ou titre de la page libre).
-func transcriptMarkdown(segs []segmentTranscrit, reperes []repere, titres map[string]string) string {
+// titres : identifiant → intitulé (question, ou titre de la page libre) ; legende : qui parle (ou "").
+func transcriptMarkdown(segs []segmentTranscrit, reperes []repere, titres map[string]string, legende string) string {
 	var b strings.Builder
 	b.WriteString("# Transcription de l'enregistrement\n\n")
-	b.WriteString("_Transcription automatique (whisper.cpp), non relue : erreurs de reconnaissance possibles, intervenants non identifiés. Horodatage à l'heure du poste._\n")
-	if slices.ContainsFunc(segs, func(s segmentTranscrit) bool {
-		return slices.ContainsFunc(s.Morceaux, func(m morceau) bool { return m.Voie != "" })
-	}) {
-		b.WriteString("\n_En visio : **Micro** = voix captées par le micro du poste (sur place), **Visio** = participants à distance (son de l'ordinateur), **Micro ou visio** = les deux à la fois ou indiscernables._\n")
+	if legende == "" {
+		b.WriteString("_Transcription automatique (whisper.cpp), non relue : erreurs de reconnaissance possibles, intervenants non identifiés. Horodatage à l'heure du poste._\n")
+	} else {
+		b.WriteString("_Transcription automatique (whisper.cpp), non relue : erreurs de reconnaissance possibles. Horodatage à l'heure du poste._\n\n_" + legende + "_\n")
 	}
 	for n, seg := range segs {
 		debut, okDebut := debutSegment(seg.ID)
@@ -475,15 +479,15 @@ func transcriptMarkdown(segs []segmentTranscrit, reperes []repere, titres map[st
 		}
 		fmt.Fprintf(&b, "\n---\n\n**Enregistrement %d%s**\n", n+1, quand)
 
-		courant, paragraphe, dernier, voie := "\x00", []string{}, "", ""
+		courant, paragraphe, dernier, qui := "\x00", []string{}, "", ""
 		debutPara, finPara := 0, 0
 		vider := func() {
 			if len(paragraphe) > 0 {
-				qui := ""
-				if nom := nomsVoies[voie]; nom != "" {
-					qui = "**" + nom + "** : "
+				prefixe := ""
+				if qui != "" {
+					prefixe = "**" + qui + "** : "
 				}
-				fmt.Fprintf(&b, "\n[%s] %s%s\n", horodatage(debut, okDebut, debutPara), qui, strings.Join(paragraphe, " "))
+				fmt.Fprintf(&b, "\n[%s] %s%s\n", horodatage(debut, okDebut, debutPara), prefixe, strings.Join(paragraphe, " "))
 				paragraphe = nil
 			}
 		}
@@ -512,11 +516,12 @@ func transcriptMarkdown(segs []segmentTranscrit, reperes []repere, titres map[st
 					fmt.Fprintf(&b, "\n## %s\n", titre)
 				}
 			}
-			if len(paragraphe) > 0 && (m.Voie != voie || m.DebutMs-finPara > 1500 || m.DebutMs-debutPara > 45000) {
+			// une phrase « ? » (plusieurs voix) reste seule : les suivantes ne sont pas forcément des mêmes personnes
+			if len(paragraphe) > 0 && (m.Qui != qui || qui == "?" || m.DebutMs-finPara > 1500 || m.DebutMs-debutPara > 45000) {
 				vider()
 			}
 			if len(paragraphe) == 0 {
-				debutPara, voie = m.DebutMs, m.Voie
+				debutPara, qui = m.DebutMs, m.Qui
 			}
 			paragraphe = append(paragraphe, texte)
 			finPara = m.FinMs
@@ -578,8 +583,17 @@ func assemblerTranscription(dir string) (string, error) {
 	if len(segs) == 0 {
 		return "", errors.New("aucun enregistrement transcrit")
 	}
+	legende := ""
+	if v, ok := lireVoix(sorties); ok && v.Utiliser {
+		attribuerVoix(segs, v)
+		legende = legendeVoix
+	} else if slices.ContainsFunc(segs, func(s segmentTranscrit) bool {
+		return slices.ContainsFunc(s.Morceaux, func(m morceau) bool { return m.Qui != "" })
+	}) {
+		legende = legendeVisio
+	}
 	chemin := filepath.Join(sorties, "transcription.md")
-	return chemin, writeAtomic(chemin, []byte(transcriptMarkdown(segs, session.Audio.Reperes, titres)))
+	return chemin, writeAtomic(chemin, []byte(transcriptMarkdown(segs, session.Audio.Reperes, titres, legende)))
 }
 
 // ---------------------------------------------------------------- tâche de fond
