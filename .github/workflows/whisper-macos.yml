@@ -1,8 +1,9 @@
-# Compile whisper-cli (whisper.cpp) pour macOS, que whisper.cpp ne publie pas, et le publie en
-# pré-release de ce dépôt (ignorée par la mise à jour de Greffier, qui ne regarde que la dernière
-# release) : Greffier le télécharge au premier enregistrement (whisper.go), sommes de contrôle vérifiées.
+# Compile whisper-cli (whisper.cpp) pour macOS 13.3 et après (BLAS récent d'Accelerate), que
+# whisper.cpp ne publie pas, et le publie en pré-release de ce dépôt (ignorée par la mise à jour de
+# Greffier, qui ne regarde que la dernière release) : Greffier le télécharge au premier
+# enregistrement (whisper.go), sommes de contrôle vérifiées.
 # Lancement, une fois par version de whisper.cpp (WHISPER_REF) :
-#   git tag outils-whisper-b5454 && git push origin outils-whisper-b5454
+#   git tag outils-whisper-b5454-2 && git push origin outils-whisper-b5454-2   (suffixe : recompilation)
 # puis reporter les sommes de SHA256SUMS.txt dans archivesWhisper (whisper.go).
 name: whisper-cli macOS
 
@@ -31,7 +32,7 @@ jobs:
               options="-DGGML_METAL=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON"
             fi
             cmake -S src -B "build-$arch" -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF \
-              -DCMAKE_OSX_ARCHITECTURES="$arch" -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0 -DWHISPER_BUILD_TESTS=OFF $options
+              -DCMAKE_OSX_ARCHITECTURES="$arch" -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 -DWHISPER_BUILD_TESTS=OFF $options
             cmake --build "build-$arch" -j --config Release --target whisper-cli
             mkdir -p "whisper-cli-macos-$arch"
             cp "build-$arch/bin/whisper-cli" src/LICENSE "whisper-cli-macos-$arch/"
