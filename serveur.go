@@ -850,7 +850,7 @@ func (s *Serveur) api(w http.ResponseWriter, r *http.Request, dir, route string)
 			}
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"nemo": nemoDisponible(), "etat": s.Voix.Etat(dir), "analyse": analyse,
-			"utiliser": v.Utiliser, "audio": len(segments) > 0, "nouveaux": nouveaux, "voix": resumerVoix(sorties, v)})
+			"utiliser": v.Utiliser, "choisi": v.Choisi, "audio": len(segments) > 0, "nouveaux": nouveaux, "voix": resumerVoix(sorties, v)})
 
 	case route == "voix" && r.Method == http.MethodPost:
 		if err := s.Voix.Lancer(dir, s.Arret, &s.Transcr); err != nil {
@@ -864,13 +864,14 @@ func (s *Serveur) api(w http.ResponseWriter, r *http.Request, dir, route string)
 			Noms     map[string]string `json:"noms"`
 			Mixtes   map[string]bool   `json:"mixtes"`
 			Utiliser bool              `json:"utiliser"`
+			Choisi   bool              `json:"choisi"` // l'utilisateur a coché lui-même une des deux options
 		}
 		if err := json.NewDecoder(io.LimitReader(r.Body, maxBody)).Decode(&p); err != nil {
 			erreur(w, http.StatusBadRequest, err.Error())
 			return
 		}
 		s.mu.Lock()
-		err := majVoix(dir, p.Noms, p.Mixtes, p.Utiliser)
+		err := majVoix(dir, p.Noms, p.Mixtes, p.Utiliser, p.Choisi)
 		s.mu.Unlock()
 		if err != nil {
 			erreur(w, http.StatusOK, err.Error())

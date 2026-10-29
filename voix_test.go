@@ -107,7 +107,7 @@ func TestVoixAtelier(t *testing.T) {
 	dir := t.TempDir()
 	sorties := filepath.Join(dir, "sorties")
 	seg := "seg-20261029-100000"
-	if err := majVoix(dir, nil, nil, true); err == nil {
+	if err := majVoix(dir, nil, nil, true, false); err == nil {
 		t.Error("noms acceptés sans séparation")
 	}
 	os.MkdirAll(dossierAudio(sorties), 0o755)
@@ -124,13 +124,24 @@ func TestVoixAtelier(t *testing.T) {
 		r[1].Libelle != "Voix 1" || len(r[1].Extraits) != 1 {
 		t.Fatalf("résumé : %+v", r)
 	}
-	if err := majVoix(dir, map[string]string{"1": " Julie ", "9": "inconnue"}, map[string]bool{"2": true, "9": true}, true); err != nil {
+	if err := majVoix(dir, map[string]string{"1": " Julie ", "9": "inconnue"}, map[string]bool{"2": true, "9": true}, true, false); err != nil {
 		t.Fatal(err)
 	}
 	v, _ = lireVoix(sorties)
 	if !v.Utiliser || len(v.Noms) != 1 || v.Noms["1"] != "Julie" || len(v.Mixtes) != 1 || !v.Mixtes["2"] {
 		t.Errorf("noms : %+v", v)
 	}
+	if v.Choisi {
+		t.Error("découpage pas encore choisi à la main")
+	}
+	majVoix(dir, nil, nil, false, true) // « Sans découpage » coché à la main
+	majVoix(dir, nil, nil, false, false)
+	if v, _ = lireVoix(sorties); v.Utiliser || !v.Choisi {
+		t.Errorf("choix à la main oublié : %+v", v)
+	}
+	v, _ = lireVoix(sorties)
+	majVoix(dir, map[string]string{"1": "Julie"}, map[string]bool{"2": true}, true, false)
+	v, _ = lireVoix(sorties)
 	if v.nom("2") != "Voix 2 (plusieurs personnes)" || resumerVoix(sorties, v)[0].Mixte != true {
 		t.Errorf("voix mixte : %q", v.nom("2"))
 	}
