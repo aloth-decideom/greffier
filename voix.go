@@ -316,7 +316,7 @@ func (sp *separateur) Lancer(dir string, arret <-chan struct{}, transcr *transcr
 			return errors.New("enregistrement en cours : séparer les voix une fois la réunion terminée")
 		}
 		segs = append(segs, s.ID)
-		total += s.Secondes * float64(voiesSegment(sorties, s.ID))
+		total += s.Secondes // micro et visio analysés en même temps
 	}
 	if len(segs) == 0 {
 		return errors.New("aucun enregistrement à analyser")
@@ -393,22 +393,46 @@ func (sp *separateur) executer(ctx context.Context, sorties string, segs []strin
 	}
 	sp.disque.Unlock()
 	v := voixAtelier{Date: time.Now().Format(time.RFC3339), Segments: segs, Tours: []tourVoix{}, Noms: map[string]string{}}
-	for voie, prefixe := range []string{"", "v"} {
-		wav := filepath.Join(dossierAudio(sorties), fmt.Sprintf("voix-%d.wav", voie))
-		plan, err := ecrireFlux(sorties, segs, voie, wav)
-		if err == nil && len(plan) > 0 {
-			var tours []struct {
-				Start, End float64
-				Speaker    int
+	// micro et visio en même temps : nemo-speech n'occupe que 4 threads (fixé dans NeMo-Speech.cpp)
+	sctx, arreter := context.WithCancel(ctx)
+	defer arreter()
+	prefixes := []string{"", "v"}
+	resultats := make([][]tourVoix, len(prefixes))
+	var mu sync.Mutex
+	var premiere error // la vraie cause, pas l'interruption de l'autre voie qui s'ensuit
+	var wg sync.WaitGroup
+	for voie, prefixe := range prefixes {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			wav := filepath.Join(dossierAudio(sorties), fmt.Sprintf("voix-%d.wav", voie))
+			defer os.Remove(wav)
+			plan, err := ecrireFlux(sorties, segs, voie, wav)
+			if err == nil && len(plan) > 0 {
+				var tours []struct {
+					Start, End float64
+					Speaker    int
+				}
+				if tours, err = diariser(sctx, nemo, modele, wav); err == nil {
+					resultats[voie] = toursDepuisFlux(plan, tours, prefixe)
+				}
 			}
-			if tours, err = diariser(ctx, nemo, modele, wav); err == nil {
-				v.Tours = append(v.Tours, toursDepuisFlux(plan, tours, prefixe)...)
+			if err != nil {
+				mu.Lock()
+				if premiere == nil {
+					premiere = err
+				}
+				mu.Unlock()
+				arreter() // inutile de finir l'autre voie
 			}
-		}
-		os.Remove(wav)
-		if err != nil {
-			return err
-		}
+		}()
+	}
+	wg.Wait()
+	if premiere != nil {
+		return premiere
+	}
+	for _, tours := range resultats {
+		v.Tours = append(v.Tours, tours...)
 	}
 	sp.disque.Lock()
 	defer sp.disque.Unlock()
