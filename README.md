@@ -90,16 +90,13 @@ Dans la page d'atelier (ou de notes libres), **🎙 Enregistrer** capte le micro
 
 Le son est écrit au fil de l'eau dans `sorties/audio/` (WAV 16 kHz mono, ~115 Mo par heure ; stéréo et le double avec la visio) et transcrit **sur le poste**, sans rien envoyer sur internet, **pendant l'atelier** : chaque question terminée (ou toutes les 2 min) est transcrite en arrière-plan, et le reste à la pause. L'avancement s'affiche au survol du bouton d'enregistrement et dans la page **📝 Compte rendu** (bouton **🎙 Transcrire** pour relancer). Poste trop lent pendant l'atelier : `GREFFIER_SANS_TRANSCRIPTION_DIRECTE=1` ne transcrit qu'à la demande. Le résultat, `sorties/transcription.md`, est joint automatiquement au prompt du compte rendu, où l'IA s'en sert pour compléter les notes (les notes priment). Une fois la transcription faite, **Supprimer l'audio** le déplace dans `sorties/audio/supprimes/`.
 
-La transcription utilise [whisper.cpp](https://github.com/ggml-org/whisper.cpp), à installer une fois :
-- **macOS** : `brew install whisper-cpp` ;
-- **Windows** : télécharger le zip de la [dernière version](https://github.com/ggml-org/whisper.cpp/releases) et placer son contenu dans un dossier `whisper` à côté de Greffier ;
-- **Linux** (paquets `git`, `cmake`, `g++`) :
-  ```sh
-  git clone --depth 1 https://github.com/ggml-org/whisper.cpp && cd whisper.cpp
-  cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
-  cmake --build build -j --target whisper-cli
-  install -D build/bin/whisper-cli ~/.local/bin/whisper-cli
-  ```
+La transcription utilise [whisper.cpp](https://github.com/ggml-org/whisper.cpp), **rien à installer** : au premier enregistrement, Greffier télécharge `whisper-cli` pour le système (5 à 10 Mo ; binaires officiels de whisper.cpp pour Windows et Linux, compilés par ce dépôt pour macOS, Metal sur Apple Silicon), sommes de contrôle vérifiées, dans le cache de l'utilisateur. Une installation existante reste prioritaire (`GREFFIER_WHISPER`, PATH, Homebrew, dossier `whisper` à côté de Greffier), par exemple `brew install whisper-cpp` ou une compilation à la main :
+```sh
+git clone --depth 1 https://github.com/ggml-org/whisper.cpp && cd whisper.cpp
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
+cmake --build build -j --target whisper-cli
+install -D build/bin/whisper-cli ~/.local/bin/whisper-cli
+```
 
 Au premier usage, Greffier télécharge le modèle de transcription et celui de détection de la voix dans le cache de l'utilisateur, une seule fois (sommes de contrôle vérifiées). Les silences sont sautés, ce qui accélère la transcription et évite que Whisper invente du texte dans les blancs ; l'audio est aussi découpé à chaque changement de question, pour que chaque passage soit rangé sous la bonne question. Durées indicatives, pour 1 h d'audio :
 | Poste | Modèle par défaut | Durée |
