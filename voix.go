@@ -431,12 +431,52 @@ func (sp *separateur) executer(ctx context.Context, sorties string, segs []strin
 	if premiere != nil {
 		return premiere
 	}
-	for _, tours := range resultats {
-		v.Tours = append(v.Tours, tours...)
-	}
+	v.Tours = append(sansEcho(resultats[0], resultats[1]), resultats[1]...)
 	sp.disque.Lock()
 	defer sp.disque.Unlock()
 	return ecrireVoix(sorties, v) // nouvelle analyse : numéros changés, donc noms et choix remis à zéro
+}
+
+// Part de son temps au-delà de laquelle une voix du micro, qui ne parle que quand la visio parle,
+// est le son de la visio entendu par le micro (haut-parleurs). Mesuré le 29/10 : 24 % pour la
+// personne au micro, 100 % pour les échos.
+const partEcho = 0.6
+
+// sansEcho retire des tours du micro les voix qui ne sont que l'écho de la visio.
+func sansEcho(micro, visio []tourVoix) []tourVoix {
+	if len(visio) == 0 {
+		return micro
+	}
+	parSeg := map[string][][2]float64{} // temps de parole de la visio, sans chevauchement
+	for _, t := range visio {
+		parSeg[t.Seg] = append(parSeg[t.Seg], [2]float64{t.Debut, t.Fin})
+	}
+	for seg, l := range parSeg {
+		sort.Slice(l, func(i, j int) bool { return l[i][0] < l[j][0] })
+		u := l[:1]
+		for _, x := range l[1:] {
+			if d := &u[len(u)-1]; x[0] <= d[1] {
+				d[1] = max(d[1], x[1])
+			} else {
+				u = append(u, x)
+			}
+		}
+		parSeg[seg] = u
+	}
+	duree, couvert := map[string]float64{}, map[string]float64{}
+	for _, t := range micro {
+		duree[t.Voix] += t.Fin - t.Debut
+		for _, x := range parSeg[t.Seg] {
+			couvert[t.Voix] += max(0, min(t.Fin, x[1])-max(t.Debut, x[0]))
+		}
+	}
+	var garde []tourVoix
+	for _, t := range micro {
+		if couvert[t.Voix] < partEcho*duree[t.Voix] {
+			garde = append(garde, t)
+		}
+	}
+	return garde
 }
 
 // ---------------------------------------------------------------- page compte rendu
