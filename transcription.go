@@ -320,6 +320,16 @@ func (t *transcripteur) transcrireMorceau(ctx context.Context, whisper, modele, 
 	return os.Rename(tmp+".json", f+".json")
 }
 
+// morceauxTranscrits : tous les morceaux du segment ont leur transcription.
+func morceauxTranscrits(sorties, seg string, bornes [][2]int) bool {
+	for _, b := range bornes {
+		if _, err := os.Stat(cheminMorceau(sorties, seg, b) + ".json"); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
 // assemblerSegment réunit les morceaux transcrits d'un segment terminé dans audio/<seg>.json
 // (format de whisper-cli, décalages en ms depuis le début du segment).
 func assemblerSegment(sorties, seg string, bornes [][2]int) error {
@@ -609,7 +619,8 @@ type EtatTranscription struct {
 // transcripteur : une transcription à la fois (elle occupe le processeur). Démarrée par le
 // premier morceau d'audio reçu, elle suit l'enregistrement : chaque question terminée (ou toutes
 // les 2 min) est transcrite pendant l'atelier, avec moins de threads pour ne pas gêner le poste.
-// Quand plus rien ne s'enregistre, elle transcrit le reste et écrit transcription.md.
+// Quand plus rien ne s'enregistre (pause comprise), elle transcrit le reste, plusieurs morceaux
+// à la fois, et écrit transcription.md.
 type transcripteur struct {
 	mu      sync.Mutex
 	dossier string
@@ -742,7 +753,8 @@ func (t *transcripteur) executer(ctx context.Context, dir string) error {
 	t.maj(func(e *EtatTranscription) { e.Etape, e.Pourcent = "Détection des silences", 0 })
 	vad := assurerVAD(ctx, whisper)
 	threadsDirect := max(1, min(runtime.NumCPU()/2, 6))
-	threads := min(runtime.NumCPU(), 8)
+	paralleles := max(1, min(runtime.NumCPU()/4, 3)) // whisper-cli gagne peu au-delà de 8 threads : plusieurs morceaux à la fois
+	threads := max(1, min(runtime.NumCPU()/paralleles, 8))
 
 	for {
 		reperes := lireSessionAudio(sorties).Audio.Reperes
@@ -783,38 +795,97 @@ func (t *transcripteur) executer(ctx context.Context, dir string) error {
 		if enDirect {
 			libelle = "Transcription au fil de l'enregistrement"
 		}
-		etat := func(f float64) {
+		var mu sync.Mutex // fait et partiel, partagés par les morceaux transcrits en même temps
+		partiel := map[string]float64{}
+		etat := func() {
+			f := fait
+			for _, p := range partiel {
+				f += p
+			}
 			t.maj(func(e *EtatTranscription) {
 				e.Etape = fmt.Sprintf("%s : %s sur %s", libelle, dureeLisible(f), dureeLisible(total))
 				e.Pourcent = int(f * 100 / max(total, 1))
 			})
 		}
-		etat(fait)
+		etat()
+		type travail struct {
+			seg string
+			b   [2]int
+		}
+		var travaux []travail
 		for _, ta := range taches {
-			n := threads
-			if enDirect {
-				n = threadsDirect
-			}
 			for _, b := range ta.bornes {
-				if _, err := os.Stat(cheminMorceau(sorties, ta.seg.ID, b) + ".json"); err == nil {
-					continue
+				if _, err := os.Stat(cheminMorceau(sorties, ta.seg.ID, b) + ".json"); err != nil {
+					travaux = append(travaux, travail{ta.seg.ID, b})
 				}
-				d := float64(b[1]-b[0]) / frequenceAudio
-				err := t.transcrireMorceau(ctx, whisper, modele, vad, n, sorties, ta.seg.ID, b, func(p int) { etat(fait + d*float64(p)/100) })
-				if err != nil {
-					return err
-				}
-				fait += d
-				etat(fait)
 			}
-			if !ta.seg.EnCours {
-				if err := assemblerSegment(sorties, ta.seg.ID, ta.bornes); err != nil {
-					return err
+		}
+		n, p := threads, paralleles
+		if enDirect {
+			// un morceau par passage, sans gêner le poste : la pause est vue dès le morceau suivant
+			n, p, travaux = threadsDirect, 1, travaux[:min(len(travaux), 1)]
+		}
+		sctx, arreter := context.WithCancel(ctx)
+		file := make(chan travail)
+		erreurs := make(chan error, p)
+		var wg sync.WaitGroup
+		for range p {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for tr := range file {
+					cle := cheminMorceau(sorties, tr.seg, tr.b)
+					d := float64(tr.b[1]-tr.b[0]) / frequenceAudio
+					err := t.transcrireMorceau(sctx, whisper, modele, vad, n, sorties, tr.seg, tr.b, func(pc int) {
+						mu.Lock()
+						partiel[cle] = d * float64(pc) / 100
+						etat()
+						mu.Unlock()
+					})
+					mu.Lock()
+					delete(partiel, cle)
+					if err == nil {
+						fait += d
+					}
+					etat()
+					mu.Unlock()
+					if err != nil {
+						erreurs <- err
+						arreter()
+						return
+					}
 				}
+			}()
+		}
+	distribuer:
+		for _, tr := range travaux {
+			select {
+			case file <- tr:
+			case <-sctx.Done():
+				break distribuer
+			}
+		}
+		close(file)
+		wg.Wait()
+		arreter()
+		select {
+		case err := <-erreurs:
+			return err
+		default:
+		}
+		for _, ta := range taches {
+			if ta.seg.EnCours || !morceauxTranscrits(sorties, ta.seg.ID, ta.bornes) {
+				continue
+			}
+			if err := assemblerSegment(sorties, ta.seg.ID, ta.bornes); err != nil {
+				return err
 			}
 		}
 		if !enDirect {
 			break
+		}
+		if len(travaux) > 0 {
+			continue // d'autres morceaux attendent peut-être déjà
 		}
 		select { // l'enregistrement continue : on revient voir ce qui s'est terminé
 		case <-ctx.Done():
