@@ -60,9 +60,10 @@ type voixAtelier struct {
 	Date     string            `json:"date"`
 	Segments []string          `json:"segments"` // segments analysés
 	Tours    []tourVoix        `json:"tours"`
-	Noms     map[string]string `json:"noms"`     // voix → nom donné à l'écoute
-	Mixtes   map[string]bool   `json:"mixtes"`   // voix où le modèle a regroupé plusieurs personnes
-	Utiliser bool              `json:"utiliser"` // transcription découpée par voix
+	Noms     map[string]string `json:"noms"`             // voix → nom donné à l'écoute
+	Mixtes   map[string]bool   `json:"mixtes"`           // voix où le modèle a regroupé plusieurs personnes
+	Utiliser bool              `json:"utiliser"`         // transcription découpée par voix
+	Choisi   bool              `json:"choisi,omitempty"` // découpage choisi à la main ; sinon proposé dès qu'une voix a un nom
 }
 
 func fichierVoix(sorties string) string { return filepath.Join(sorties, "voix.json") }
@@ -570,7 +571,7 @@ func resumerVoix(sorties string, v voixAtelier) []resumeVoix {
 
 // majVoix enregistre les noms, les voix qui regroupent plusieurs personnes et le choix de découper
 // la transcription par voix, puis réécrit transcription.md en conséquence.
-func majVoix(dir string, noms map[string]string, mixtes map[string]bool, utiliser bool) error {
+func majVoix(dir string, noms map[string]string, mixtes map[string]bool, utiliser, choisi bool) error {
 	sorties := filepath.Join(dir, "sorties")
 	v, ok := lireVoix(sorties)
 	if !ok {
@@ -585,7 +586,7 @@ func majVoix(dir string, noms map[string]string, mixtes map[string]bool, utilise
 			v.Mixtes[t.Voix] = true
 		}
 	}
-	v.Utiliser = utiliser
+	v.Utiliser, v.Choisi = utiliser, v.Choisi || choisi
 	if err := ecrireVoix(sorties, v); err != nil {
 		return err
 	}

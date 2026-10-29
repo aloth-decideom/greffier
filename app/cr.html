@@ -70,8 +70,10 @@
   .carte-voix .h { color: var(--gris); font-variant-numeric: tabular-nums; }
   .carte-voix .txt { color: var(--texte); }
   dialog.voix footer { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 12px 18px; border-top: 1px solid var(--ligne); font-size: 13px; }
+  dialog.voix footer .choix { margin-left: auto; display: flex; flex-wrap: wrap; gap: 4px 14px; padding: 6px 12px; border: 1px solid var(--rouge); border-radius: 8px; background: color-mix(in srgb, var(--rouge) 7%, transparent); }
   dialog.voix footer label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
-  dialog.voix footer .primary { margin-left: auto; font-family: var(--font-titre); background: var(--rouge); border: 1px solid var(--rouge); color: #fff; font-weight: 600; border-radius: 8px; padding: 7px 14px; }
+  dialog.voix footer label:has(input:checked) { font-weight: 600; color: var(--encre); }
+  dialog.voix footer .primary { font-family: var(--font-titre); background: var(--rouge); border: 1px solid var(--rouge); color: #fff; font-weight: 600; border-radius: 8px; padding: 7px 14px; }
   dialog.voix footer .primary:hover { background: var(--rouge-fonce); }
   .status { padding: 8px 18px; font-size: 12px; border-top: 1px solid var(--ligne); display: flex; gap: 14px; flex-wrap: wrap; }
   .status .warn { color: var(--warn); font-weight: 600; }
@@ -137,8 +139,10 @@
     <p class="aide warn" id="voixSansAudio" hidden>L'audio a été supprimé : écoute impossible.</p>
     <div id="listeVoix"></div>
     <footer>
-      <label title="Chaque paragraphe de la transcription commence par le nom de la personne"><input type="radio" name="modeVoix" value="oui"> Transcription découpée par voix</label>
-      <label title="Si la séparation n'est pas satisfaisante : la transcription reste telle qu'elle était"><input type="radio" name="modeVoix" value="non"> Sans découpage</label>
+      <div class="choix" id="choixVoix">
+        <label title="Chaque paragraphe de la transcription commence par le nom de la personne"><input type="radio" name="modeVoix" value="oui"> Transcription découpée par voix</label>
+        <label title="Si la séparation n'est pas satisfaisante : la transcription reste telle qu'elle était"><input type="radio" name="modeVoix" value="non"> Sans découpage</label>
+      </div>
       <button type="button" class="primary" id="bVoixOK">Enregistrer</button>
     </footer>
   </form>
@@ -291,9 +295,19 @@
             data-src="api/audio/${esc(x.seg)}/extrait?debut=${x.debut}&amp;fin=${Math.min(x.fin, x.debut + 59)}&amp;voie=${x.voie}">▶</button>
           <span class="h">${heure(x.seg, x.debut)}</span><span class="txt">${esc(x.texte || "(passage sans transcription)")}</span></li>`).join("")}</ol>
       </div>`).join("");
-    document.querySelector(`input[name=modeVoix][value=${r.utiliser ? "oui" : "non"}]`).checked = true;
+    choixVoix = r.choisi;
+    proposerDecoupage(r.utiliser);
     $("dlgVoix").showModal();
   }
+  // Tant que l'utilisateur n'a pas choisi lui-même : découpage proposé dès qu'une voix a un nom
+  let choixVoix = false;
+  function proposerDecoupage(utiliser) {
+    const nomme = [...document.querySelectorAll("#listeVoix input[data-voix]")].some((i) => i.value.trim());
+    const oui = choixVoix ? utiliser : nomme;
+    document.querySelector(`input[name=modeVoix][value=${oui ? "oui" : "non"}]`).checked = true;
+  }
+  $("listeVoix").addEventListener("input", (e) => { if (!choixVoix && e.target.matches("input[data-voix]")) proposerDecoupage(); });
+  $("choixVoix").addEventListener("change", () => { choixVoix = true; });
   const PH_NOM = "Nom de la personne", PH_MIXTE = "Noms des personnes (ex. Antoine, Anaïs)";
   $("listeVoix").addEventListener("change", (e) => {
     const c = e.target.closest("input[data-mixte]");
@@ -316,7 +330,7 @@
     document.querySelectorAll("#listeVoix input[data-voix]").forEach((i) => { noms[i.dataset.voix] = i.value.trim(); });
     document.querySelectorAll("#listeVoix input[data-mixte]:checked").forEach((i) => { mixtes[i.dataset.mixte] = true; });
     const utiliser = document.querySelector("input[name=modeVoix]:checked").value === "oui";
-    const r = await (await fetch("api/voix", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ noms, mixtes, utiliser }) }))
+    const r = await (await fetch("api/voix", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ noms, mixtes, utiliser, choisi: choixVoix }) }))
       .json().catch(() => ({ erreur: "Greffier injoignable" }));
     if (r.erreur) { status("⚠ " + r.erreur); return; }
     $("dlgVoix").close();
