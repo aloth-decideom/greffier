@@ -545,23 +545,33 @@
   // livrer des zéros pendant des heures, ex. micro USB débranché) ou une piste micro terminée.
   // ecouter(true) ouvre le micro pour la jauge seule, hors enregistrement : rien n'est écrit ni
   // envoyé, et un micro branché ou changé entre-temps est repris automatiquement.
-  // visio(true) mélange au micro le son de l'ordinateur, donc les participants d'une visio (Teams,
+  // visio(true) capte aussi le son de l'ordinateur, donc les participants d'une visio (Teams,
   // Meet…) qu'un casque empêche le micro d'entendre. Linux : source « Monitor of … » de la sortie
   // audio, ouverte comme un micro (api/son-visio dit laquelle). Windows, macOS : partage d'écran
   // avec l'audio du système (Edge, Chrome), qui ne peut être demandé que sur un clic.
+  // Avec la visio, le son est en stéréo (gauche : micro, droite : visio, échantillons entrelacés,
+  // envoyés avec ?voies=2) : la transcription dit qui parle. Changer de réglage pendant
+  // l'enregistrement ouvre donc un nouveau segment.
   // opts : { onStatus: (status) => void, onSegment: (seg) => void }
   const WORKLET = `class P extends AudioWorkletProcessor {
-    constructor() { super(); this.r = sampleRate / 16000; this.pos = 0; this.acc = 0; this.cnt = 0; this.b = new Int16Array(4000); this.n = 0; }
+    constructor(o) {
+      super(); this.v = o.processorOptions.voies; this.r = sampleRate / 16000; this.pos = 0; this.cnt = 0;
+      this.acc = new Float64Array(this.v); this.b = new Int16Array(4000 * this.v); this.n = 0;
+    }
     process(inputs) {
-      const c = inputs[0] && inputs[0][0];
-      if (c) for (let i = 0; i < c.length; i++) {
-        this.acc += c[i]; this.cnt++;
+      const e = inputs[0] || [];
+      if (e[0]) for (let i = 0; i < e[0].length; i++) {
+        for (let k = 0; k < this.v; k++) this.acc[k] += e[k] ? e[k][i] : 0;
+        this.cnt++;
         if (++this.pos < this.r) continue;
         this.pos -= this.r;
-        const s = Math.max(-1, Math.min(1, this.acc / this.cnt));
-        this.acc = 0; this.cnt = 0;
-        this.b[this.n++] = s < 0 ? s * 32768 : s * 32767;
-        if (this.n === this.b.length) { this.port.postMessage(this.b.buffer, [this.b.buffer]); this.b = new Int16Array(4000); this.n = 0; }
+        for (let k = 0; k < this.v; k++) {
+          const s = Math.max(-1, Math.min(1, this.acc[k] / this.cnt));
+          this.acc[k] = 0;
+          this.b[this.n++] = s < 0 ? s * 32768 : s * 32767;
+        }
+        this.cnt = 0;
+        if (this.n === this.b.length) { this.port.postMessage(this.b.buffer, [this.b.buffer]); this.b = new Int16Array(4000 * this.v); this.n = 0; }
       }
       return true;
     }
@@ -577,6 +587,7 @@
     const status = { actif: false, ecoute: false, seg: null, enAttente: 0, erreur: null, micro: "", niveau: 0, alerte: null,
       visio: false, visioSource: "", visioErreur: null };
     let ctx = null, stream = null, visioStream = null, chunks = [], queue = [], timer = null, veille = null, sending = null, wake = null, samples = 0, dernierSon = 0;
+    let voies = 1;   // 2 : micro à gauche, son de la visio à droite
     const SEUIL_SON = 4, DELAI_SILENCE = 15000;   // échantillons 16 bits ; un vrai micro dépasse toujours ce bruit de fond
     const SANS_TRAITEMENT = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
     // Son de la visio, gardé ouvert d'un segment à l'autre (le partage d'écran ne se redemande pas)
@@ -621,30 +632,34 @@
         const url = URL.createObjectURL(new Blob([WORKLET], { type: "text/javascript" }));
         await c.audioWorklet.addModule(url);
         URL.revokeObjectURL(url);
-        // une seule voie : le son stéréo de la visio est ramené en mono, puis additionné au micro
-        const node = new AudioWorkletNode(c, "greffier-pcm16", { channelCount: 1, channelCountMode: "explicit", channelInterpretation: "speakers" });
+        // micro seul : une voie ; avec la visio : deux voies, le son stéréo de la visio ramené en mono à droite
+        const nv = v ? 2 : 1;
+        const node = new AudioWorkletNode(c, "greffier-pcm16", { channelCount: nv, channelCountMode: "explicit",
+          channelInterpretation: "discrete", processorOptions: { voies: nv } });
         node.port.onmessage = (e) => {
           const m = new Int16Array(e.data);
-          if (status.actif) { chunks.push(m); samples += m.length; }
+          if (status.actif) { chunks.push(m); samples += m.length / nv; }
           let crete = 0;
           for (let i = 0; i < m.length; i++) { const v = m[i] < 0 ? -m[i] : m[i]; if (v > crete) crete = v; }
           status.niveau = Math.max(status.niveau * 0.7, crete / 32768);
           if (crete > SEUIL_SON) { dernierSon = Date.now(); if (status.alerte === "silence") { status.alerte = null; notify(); } }
         };
-        c.createMediaStreamSource(s).connect(node);
         if (v) {
-          c.createMediaStreamSource(v).connect(node);
+          const voiesNode = c.createChannelMerger(2);   // chaque entrée ramenée en mono
+          c.createMediaStreamSource(s).connect(voiesNode, 0, 0);
+          c.createMediaStreamSource(v).connect(voiesNode, 0, 1);
+          voiesNode.connect(node);
           const pv = v.getAudioTracks()[0];
           status.visioSource = visioMode === "ecran" ? "son de l'ordinateur" : pv.label;
           pv.onended = () => { status.visioSource = ""; status.visioErreur = "le son de la visio n'est plus capté (partage arrêté ?)"; notify(); };
-        }
+        } else c.createMediaStreamSource(s).connect(node);
         node.connect(c.destination);   // sortie silencieuse : garde le nœud actif
       } catch (e) {
         s.getTracks().forEach((t) => t.stop());
         if (c) c.close().catch(() => {});
         throw e;
       }
-      stream = s; ctx = c;
+      stream = s; ctx = c; voies = v ? 2 : 1;
       const piste = stream.getAudioTracks()[0];
       status.micro = (piste && piste.label) || "micro par défaut";
       status.alerte = null; status.niveau = 0; dernierSon = Date.now();
@@ -689,19 +704,19 @@
       let o = 0;
       chunks.forEach((c) => { all.set(c, o); o += c.length; });
       chunks = [];
-      queue.push({ seg: status.seg, data: all.buffer });
+      queue.push({ seg: status.seg, data: all.buffer, voies });
     }
     function send() {
       if (sending) return sending;
       sending = (async () => {
         while (queue.length) {
-          const { seg, data } = queue[0];
-          const r = await fetch("api/audio/" + seg, { method: "PUT", body: data, headers: { "Content-Type": "application/octet-stream" } }).catch(() => null);
+          const { seg, data, voies } = queue[0];
+          const r = await fetch("api/audio/" + seg + (voies === 2 ? "?voies=2" : ""), { method: "PUT", body: data, headers: { "Content-Type": "application/octet-stream" } }).catch(() => null);
           if (!r || !r.ok) { status.erreur = "audio non enregistré sur le disque (nouvel essai dans 5 s)"; break; }
           queue.shift();
           status.erreur = null;
         }
-        status.enAttente = queue.reduce((n, q) => n + q.data.byteLength, 0) / 32000;
+        status.enAttente = queue.reduce((n, q) => n + q.data.byteLength / q.voies, 0) / 32000;
         notify();
       })().finally(() => { sending = null; });
       return sending;
@@ -748,11 +763,13 @@
       },
       // "" si ce navigateur ne sait pas capter le son de l'ordinateur ; sinon "moniteur" ou "ecran"
       visioMode,
-      // Son de la visio mélangé au micro (true) ou non ; appliqué tout de suite si le micro est ouvert
+      // Son de la visio capté avec le micro (true) ou non ; appliqué tout de suite si le micro est ouvert.
+      // Pendant l'enregistrement : nouveau segment (le nombre de voies d'un segment ne change pas)
       async visio(on, geste) {
         status.visio = !!on;
         if (!on) fermerVisio();
         status.visioErreur = null;
+        if (status.actif) return this.relancer();
         try { await rouvrir(geste); } finally { notify(); }
       },
       // Relance après une alerte : nouveau segment sur le micro par défaut du moment

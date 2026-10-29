@@ -796,8 +796,12 @@ func (s *Serveur) api(w http.ResponseWriter, r *http.Request, dir, route string)
 				erreur(w, http.StatusBadRequest, rerr.Error())
 				return
 			}
+			voies := 1 // 2 : stéréo entrelacée, micro + son de la visio
+			if r.URL.Query().Get("voies") == "2" {
+				voies = 2
+			}
 			s.mu.Lock()
-			err = ajouterAudio(sorties, seg, data)
+			err = ajouterAudio(sorties, seg, data, voies)
 			s.mu.Unlock()
 			if err == nil && !transcriptionDirecteDesactivee && cheminWhisper() != "" {
 				_ = s.Transcr.Lancer(dir, s.Arret) // transcription au fil de l'enregistrement (sans effet si déjà lancée)

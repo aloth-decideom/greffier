@@ -1459,13 +1459,14 @@
       `<button class="main" data-relancer>Relancer l'enregistrement</button>`;
     ban.hidden = false;
   }
-  // Bouton 🎧 Visio : son des participants d'une visio (Teams, Meet…) mélangé au micro.
+  // Bouton 🎧 Visio : son des participants d'une visio (Teams, Meet…), enregistré à côté du micro
+  // (voie séparée : la transcription distingue Micro et Visio).
   const VISIO_CASQUE = "Avec un casque : sur les haut-parleurs, le micro reprend aussi les participants (voix en double).";
   function renderVisio(st) {
     const b = $("recVisio");
     b.classList.toggle("on", st.visio && !!st.visioSource);
     b.classList.toggle("warn", st.visio && !!st.visioErreur);
-    b.title = !st.visio ? "Visio (Teams, Meet…) : capter aussi le son des participants, mélangé au micro. " + VISIO_CASQUE
+    b.title = !st.visio ? "Visio (Teams, Meet…) : capter aussi le son des participants, sur une voie séparée du micro (la transcription distingue Micro et Visio). " + VISIO_CASQUE
       : st.visioErreur ? `⚠ Son de la visio non capté : ${st.visioErreur}. Cliquer pour ne plus le capter`
       : st.visioSource ? `Son de la visio capté (${st.visioSource}) avec le micro. Cliquer pour ne plus le capter`
       : recorder.visioMode === "ecran" ? "Son de la visio : sera capté au démarrage de l'enregistrement (partage de l'écran avec « Partager l'audio du système »)"
@@ -1475,6 +1476,7 @@
     const on = !recorder.status.visio;
     pref("visio", on ? "oui" : "non");
     try { await recorder.visio(on, true); } catch (e) { toast("Micro inaccessible : " + (e.message || e.name)); return; }
+    if (recorder.status.actif) await majDureeEnregistree();   // nouveau segment
     const st = recorder.status;
     toast(!on ? "Son de la visio : plus capté, micro seul"
       : st.visioErreur ? "⚠ Son de la visio non capté : " + st.visioErreur

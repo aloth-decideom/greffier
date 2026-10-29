@@ -5,6 +5,8 @@ package main
 // période d'enregistrement (segment) s'écrit au fil de l'eau dans sorties/audio/<segment>.pcm,
 // puis devient un .wav (en-tête ajouté) à la pause ou avant la transcription.
 // Un plantage du navigateur ne fait donc perdre que les dernières secondes.
+// Avec le son d'une visio, le segment est en stéréo (voie gauche : micro, voie droite : son de
+// l'ordinateur), signalé par <segment>.stereo : la transcription dit alors qui parle.
 
 import (
 	"encoding/binary"
@@ -21,7 +23,7 @@ import (
 
 const (
 	frequenceAudio   = 16000
-	octetsParSeconde = frequenceAudio * 2 // 16 bits, mono
+	octetsParSeconde = frequenceAudio * 2 // 16 bits, par voie
 	tailleEnteteWAV  = 44
 )
 
@@ -42,18 +44,45 @@ const delaiSegmentActif = 20 * time.Second
 
 func dossierAudio(sorties string) string { return filepath.Join(sorties, "audio") }
 
-// ajouterAudio ajoute un morceau de PCM à la fin du segment.
-func ajouterAudio(sorties, seg string, data []byte) error {
+// voiesSegment : 2 si le segment est en stéréo (micro + visio), 1 sinon.
+func voiesSegment(sorties, seg string) int {
+	if _, err := os.Stat(filepath.Join(dossierAudio(sorties), seg+".stereo")); err == nil {
+		return 2
+	}
+	return 1
+}
+
+// ajouterAudio ajoute un morceau de PCM (voies : 1, ou 2 entrelacées) à la fin du segment.
+func ajouterAudio(sorties, seg string, data []byte, voies int) error {
 	if !reSegment.MatchString(seg) {
 		return errors.New("nom de segment invalide")
 	}
-	if len(data)%2 != 0 {
+	if voies != 1 && voies != 2 {
+		return errors.New("nombre de voies invalide")
+	}
+	if len(data)%(2*voies) != 0 {
 		return errors.New("morceau audio incomplet")
 	}
-	if err := os.MkdirAll(dossierAudio(sorties), 0o755); err != nil {
+	dir := dossierAudio(sorties)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(filepath.Join(dossierAudio(sorties), seg+".pcm"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if echantillons(sorties, seg) == 0 {
+		// début du segment : son nombre de voies est fixé
+		marque := filepath.Join(dir, seg+".stereo")
+		var err error
+		if voies == 2 {
+			err = os.WriteFile(marque, nil, 0o644)
+		} else if err = os.Remove(marque); errors.Is(err, fs.ErrNotExist) {
+			err = nil
+		}
+		if err != nil {
+			return err
+		}
+	} else if voiesSegment(sorties, seg) != voies {
+		return fmt.Errorf("segment %s : nombre de voies différent du début de l'enregistrement", seg)
+	}
+	f, err := os.OpenFile(filepath.Join(dir, seg+".pcm"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
@@ -66,20 +95,20 @@ func ajouterAudio(sorties, seg string, data []byte) error {
 	return err
 }
 
-// enteteWAV : en-tête RIFF d'un fichier PCM 16 bits mono à 16 kHz de n octets de données.
-func enteteWAV(n uint32) []byte {
+// enteteWAV : en-tête RIFF d'un fichier PCM 16 bits à 16 kHz (voies : 1 mono, 2 stéréo) de n octets de données.
+func enteteWAV(n uint32, voies int) []byte {
 	h := make([]byte, 0, tailleEnteteWAV)
 	le := binary.LittleEndian
 	h = append(h, "RIFF"...)
 	h = le.AppendUint32(h, 36+n)
 	h = append(h, "WAVEfmt "...)
-	h = le.AppendUint32(h, 16)               // taille du bloc fmt
-	h = le.AppendUint16(h, 1)                // PCM
-	h = le.AppendUint16(h, 1)                // mono
-	h = le.AppendUint32(h, frequenceAudio)   // échantillons par seconde
-	h = le.AppendUint32(h, octetsParSeconde) // octets par seconde
-	h = le.AppendUint16(h, 2)                // octets par échantillon
-	h = le.AppendUint16(h, 16)               // bits par échantillon
+	h = le.AppendUint32(h, 16)                             // taille du bloc fmt
+	h = le.AppendUint16(h, 1)                              // PCM
+	h = le.AppendUint16(h, uint16(voies))                  // voies
+	h = le.AppendUint32(h, frequenceAudio)                 // échantillons par seconde
+	h = le.AppendUint32(h, uint32(octetsParSeconde*voies)) // octets par seconde
+	h = le.AppendUint16(h, uint16(2*voies))                // octets par échantillon (toutes voies)
+	h = le.AppendUint16(h, 16)                             // bits par échantillon
 	h = append(h, "data"...)
 	return le.AppendUint32(h, n)
 }
@@ -108,7 +137,7 @@ func finaliserWAV(sorties, seg string) error {
 	if len(donnees) > 0xFFFFFFFF-36 {
 		return fmt.Errorf("segment %s trop long pour un fichier WAV", seg)
 	}
-	if err := writeAtomic(wav, append(enteteWAV(uint32(len(donnees))), donnees...)); err != nil {
+	if err := writeAtomic(wav, append(enteteWAV(uint32(len(donnees)), voiesSegment(sorties, seg)), donnees...)); err != nil {
 		return err
 	}
 	return os.Remove(pcm)
@@ -149,6 +178,7 @@ func listerSegments(sorties string) []infoSegment {
 	}
 	liste := []infoSegment{}
 	for _, s := range parID {
+		s.Secondes /= float64(voiesSegment(sorties, s.ID))
 		// transcrit : le .json est plus récent que tout l'audio du segment (sinon, à refaire)
 		st, err := os.Stat(filepath.Join(dir, s.ID+".json"))
 		s.Transcrit = err == nil && !s.aPCM && !st.ModTime().Before(s.modifie)
@@ -164,7 +194,7 @@ func supprimerAudio(sorties string) error {
 	dir := dossierAudio(sorties)
 	dest := filepath.Join(dir, "supprimes")
 	for _, s := range listerSegments(sorties) {
-		for _, ext := range []string{".wav", ".pcm"} {
+		for _, ext := range []string{".wav", ".pcm", ".stereo"} {
 			p := filepath.Join(dir, s.ID+ext)
 			if _, err := os.Stat(p); err != nil {
 				continue

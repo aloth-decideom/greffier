@@ -10,16 +10,16 @@ import (
 func TestTranscriptMarkdown(t *testing.T) {
 	segs := []segmentTranscrit{
 		{ID: "seg-20261012-140000", Morceaux: []morceau{
-			{0, 2000, " Bonjour à tous."},
-			{2000, 4000, " On commence par la vision."},
-			{4000, 5000, " [Musique]"},
-			{9500, 12000, " La DSI veut un entrepôt."},  // repère B1-1 à 10 s, tolérance 0,5 s
-			{12000, 14000, " La DSI veut un entrepôt."}, // répétition de Whisper
-			{14000, 15000, " Sous-titrage ST' 501"},     // texte parasite
-			{30000, 32000, " Retour à la vision."},      // retour sur A1-1, nouveau titre
+			{0, 2000, " Bonjour à tous.", ""},
+			{2000, 4000, " On commence par la vision.", ""},
+			{4000, 5000, " [Musique]", ""},
+			{9500, 12000, " La DSI veut un entrepôt.", ""},  // repère B1-1 à 10 s, tolérance 0,5 s
+			{12000, 14000, " La DSI veut un entrepôt.", ""}, // répétition de Whisper
+			{14000, 15000, " Sous-titrage ST' 501", ""},     // texte parasite
+			{30000, 32000, " Retour à la vision.", ""},      // retour sur A1-1, nouveau titre
 		}},
 		{ID: "seg-20261012-150000", Morceaux: []morceau{
-			{1000, 3000, " Deuxième partie."},
+			{1000, 3000, " Deuxième partie.", ""},
 		}},
 	}
 	reperes := []repere{
@@ -57,7 +57,7 @@ func TestTranscriptMarkdown(t *testing.T) {
 
 func TestTranscriptSansRepere(t *testing.T) {
 	segs := []segmentTranscrit{{ID: "nom-libre", Morceaux: []morceau{
-		{0, 1000, " Un."}, {1200, 2000, " Deux."}, {5000, 6000, " Trois, après un silence."},
+		{0, 1000, " Un.", ""}, {1200, 2000, " Deux.", ""}, {5000, 6000, " Trois, après un silence.", ""},
 	}}}
 	md := transcriptMarkdown(segs, nil, nil)
 	if strings.Contains(md, "## ") {
@@ -78,7 +78,7 @@ func TestAssemblerTranscriptionNotesLibres(t *testing.T) {
 	os.WriteFile(filepath.Join(sorties, "session.json"), []byte(`{"pages":[{"id":"P1","title":""},{"id":"P2","title":"Budget 2027"}],
 		"audio":{"reperes":[{"seg":"seg-20261012-090000","t":0,"id":"P1"},{"seg":"seg-20261012-090000","t":60,"id":"P2"}]}}`), 0o644)
 	seg := filepath.Join(dossierAudio(sorties), "seg-20261012-090000")
-	os.WriteFile(seg+".wav", enteteWAV(0), 0o644)
+	os.WriteFile(seg+".wav", enteteWAV(0, 1), 0o644)
 	os.WriteFile(seg+".json", []byte(`{"transcription":[
 		{"offsets":{"from":0,"to":2000},"text":" Ordre du jour."},
 		{"offsets":{"from":61000,"to":63000},"text":" Le budget augmente."}]}`), 0o644)
@@ -161,13 +161,13 @@ func TestLirePlage(t *testing.T) {
 		}
 		return out
 	}
-	if err := ajouterAudio(sorties, seg, ech(0, 100)); err != nil {
+	if err := ajouterAudio(sorties, seg, ech(0, 100), 1); err != nil {
 		t.Fatal(err)
 	}
 	if err := finaliserWAV(sorties, seg); err != nil {
 		t.Fatal(err)
 	}
-	if err := ajouterAudio(sorties, seg, ech(100, 160)); err != nil { // reprise après plantage : .wav + .pcm
+	if err := ajouterAudio(sorties, seg, ech(100, 160), 1); err != nil { // reprise après plantage : .wav + .pcm
 		t.Fatal(err)
 	}
 	if n := echantillons(sorties, seg); n != 160 {
@@ -181,5 +181,28 @@ func TestLirePlage(t *testing.T) {
 	}
 	if _, err := lirePlage(sorties, seg, 150, 170); err == nil {
 		t.Error("plage au-delà de la fin acceptée")
+	}
+}
+
+func TestTranscriptVoies(t *testing.T) {
+	segs := []segmentTranscrit{{ID: "seg-20261029-100000", Morceaux: []morceau{
+		{0, 2000, " Bonjour, vous m'entendez ?", "0"},
+		{2000, 3000, " Oui, très bien.", "1"},
+		{3000, 4000, " Parfait.", "1"},
+		{4000, 5000, " On parle ensemble.", "?"},
+	}}}
+	md := transcriptMarkdown(segs, nil, nil)
+	for _, a := range []string{
+		"**Micro** = voix captées",
+		"[10:00:00] **Micro** : Bonjour, vous m'entendez ?\n",
+		"[10:00:02] **Visio** : Oui, très bien. Parfait.\n",
+		"[10:00:04] **Micro ou visio** : On parle ensemble.\n",
+	} {
+		if !strings.Contains(md, a) {
+			t.Errorf("absent : %q\n---\n%s", a, md)
+		}
+	}
+	if md := transcriptMarkdown([]segmentTranscrit{{ID: "seg-20261029-100000", Morceaux: []morceau{{0, 1000, " Seul.", ""}}}}, nil, nil); strings.Contains(md, "**Micro**") {
+		t.Errorf("enregistrement mono : pas de voies\n%s", md)
 	}
 }

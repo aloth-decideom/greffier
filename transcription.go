@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -233,7 +234,7 @@ func fichiersAudio(sorties, seg string) [2]struct {
 	}{{base + ".wav", tailleEnteteWAV}, {base + ".pcm", 0}}
 }
 
-// echantillons : nombre d'échantillons enregistrés dans le segment.
+// echantillons : nombre d'échantillons enregistrés dans le segment (par voie).
 func echantillons(sorties, seg string) int {
 	var n int64
 	for _, f := range fichiersAudio(sorties, seg) {
@@ -241,13 +242,14 @@ func echantillons(sorties, seg string) int {
 			n += max(st.Size()-f.entete, 0)
 		}
 	}
-	return int(n / 2)
+	return int(n / int64(2*voiesSegment(sorties, seg)))
 }
 
-// lirePlage : les échantillons [d, f) du segment, sans relire tout l'enregistrement.
+// lirePlage : les échantillons [d, f) du segment (toutes voies), sans relire tout l'enregistrement.
 func lirePlage(sorties, seg string, d, f int) ([]byte, error) {
-	out := make([]byte, 0, (f-d)*2)
-	off, reste := int64(d)*2, int64(f-d)*2
+	taille := int64(2 * voiesSegment(sorties, seg))
+	out := make([]byte, 0, int64(f-d)*taille)
+	off, reste := int64(d)*taille, int64(f-d)*taille
 	for _, fa := range fichiersAudio(sorties, seg) {
 		fi, err := os.Open(fa.chemin)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -294,11 +296,12 @@ func (t *transcripteur) transcrireMorceau(ctx context.Context, whisper, modele, 
 	}
 	deverrouiller := t.verrou()
 	donnees, err := lirePlage(sorties, seg, b[0], b[1])
+	voies := voiesSegment(sorties, seg)
 	deverrouiller()
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(f+".wav", append(enteteWAV(uint32(len(donnees))), donnees...), 0o644); err != nil {
+	if err := os.WriteFile(f+".wav", append(enteteWAV(uint32(len(donnees)), voies), donnees...), 0o644); err != nil {
 		return err
 	}
 	defer os.Remove(f + ".wav")
@@ -306,6 +309,9 @@ func (t *transcripteur) transcrireMorceau(ctx context.Context, whisper, modele, 
 	args := []string{"-m", modele, "-f", f + ".wav", "-l", "fr", "-t", strconv.Itoa(threads), "-pp", "-oj", "-of", tmp}
 	if vad != "" {
 		args = append(args, "--vad", "-vm", vad)
+	}
+	if voies == 2 {
+		args = append(args, "--diarize") // chaque passage : voie la plus forte, "0" micro, "1" visio, "?" les deux
 	}
 	if err := lancerWhisper(ctx, whisper, args, progres); err != nil {
 		os.Remove(tmp + ".json")
@@ -322,7 +328,8 @@ func assemblerSegment(sorties, seg string, bornes [][2]int) error {
 			From int `json:"from"`
 			To   int `json:"to"`
 		} `json:"offsets"`
-		Text string `json:"text"`
+		Text    string `json:"text"`
+		Speaker string `json:"speaker,omitempty"`
 	}
 	tout := []sortie{}
 	for _, b := range bornes {
@@ -386,6 +393,7 @@ func lancerWhisper(ctx context.Context, whisper string, args []string, progres f
 type morceau struct {
 	DebutMs, FinMs int
 	Texte          string
+	Voie           string // segment stéréo : "0" micro, "1" visio, "?" indéterminé ; "" en mono
 }
 
 type segmentTranscrit struct {
@@ -409,6 +417,7 @@ func lireSortieWhisper(chemin string) ([]morceau, error) {
 		Transcription []struct {
 			Offsets struct{ From, To int } `json:"offsets"`
 			Text    string                 `json:"text"`
+			Speaker string                 `json:"speaker"`
 		} `json:"transcription"`
 	}
 	if err := json.Unmarshal(raw, &w); err != nil {
@@ -416,7 +425,7 @@ func lireSortieWhisper(chemin string) ([]morceau, error) {
 	}
 	var ms []morceau
 	for _, t := range w.Transcription {
-		ms = append(ms, morceau{DebutMs: t.Offsets.From, FinMs: t.Offsets.To, Texte: t.Text})
+		ms = append(ms, morceau{DebutMs: t.Offsets.From, FinMs: t.Offsets.To, Texte: t.Text, Voie: t.Speaker})
 	}
 	return ms, nil
 }
@@ -437,12 +446,20 @@ func horodatage(debut time.Time, ok bool, ms int) string {
 	return fmt.Sprintf("%02d:%02d:%02d", s/3600, s/60%60, s%60)
 }
 
+// Voies d'un segment stéréo : qui parle, d'après la voie la plus forte du passage.
+var nomsVoies = map[string]string{"0": "Micro", "1": "Visio", "?": "Micro ou visio"}
+
 // transcriptMarkdown assemble les segments en un document découpé par question ou page.
 // titres : identifiant → intitulé (question, ou titre de la page libre).
 func transcriptMarkdown(segs []segmentTranscrit, reperes []repere, titres map[string]string) string {
 	var b strings.Builder
 	b.WriteString("# Transcription de l'enregistrement\n\n")
 	b.WriteString("_Transcription automatique (whisper.cpp), non relue : erreurs de reconnaissance possibles, intervenants non identifiés. Horodatage à l'heure du poste._\n")
+	if slices.ContainsFunc(segs, func(s segmentTranscrit) bool {
+		return slices.ContainsFunc(s.Morceaux, func(m morceau) bool { return m.Voie != "" })
+	}) {
+		b.WriteString("\n_En visio : **Micro** = voix captées par le micro du poste (sur place), **Visio** = participants à distance (son de l'ordinateur), **Micro ou visio** = les deux à la fois ou indiscernables._\n")
+	}
 	for n, seg := range segs {
 		debut, okDebut := debutSegment(seg.ID)
 		var rs []repere
@@ -458,11 +475,15 @@ func transcriptMarkdown(segs []segmentTranscrit, reperes []repere, titres map[st
 		}
 		fmt.Fprintf(&b, "\n---\n\n**Enregistrement %d%s**\n", n+1, quand)
 
-		courant, paragraphe, dernier := "\x00", []string{}, ""
+		courant, paragraphe, dernier, voie := "\x00", []string{}, "", ""
 		debutPara, finPara := 0, 0
 		vider := func() {
 			if len(paragraphe) > 0 {
-				fmt.Fprintf(&b, "\n[%s] %s\n", horodatage(debut, okDebut, debutPara), strings.Join(paragraphe, " "))
+				qui := ""
+				if nom := nomsVoies[voie]; nom != "" {
+					qui = "**" + nom + "** : "
+				}
+				fmt.Fprintf(&b, "\n[%s] %s%s\n", horodatage(debut, okDebut, debutPara), qui, strings.Join(paragraphe, " "))
 				paragraphe = nil
 			}
 		}
@@ -491,11 +512,11 @@ func transcriptMarkdown(segs []segmentTranscrit, reperes []repere, titres map[st
 					fmt.Fprintf(&b, "\n## %s\n", titre)
 				}
 			}
-			if len(paragraphe) > 0 && (m.DebutMs-finPara > 1500 || m.DebutMs-debutPara > 45000) {
+			if len(paragraphe) > 0 && (m.Voie != voie || m.DebutMs-finPara > 1500 || m.DebutMs-debutPara > 45000) {
 				vider()
 			}
 			if len(paragraphe) == 0 {
-				debutPara = m.DebutMs
+				debutPara, voie = m.DebutMs, m.Voie
 			}
 			paragraphe = append(paragraphe, texte)
 			finPara = m.FinMs
