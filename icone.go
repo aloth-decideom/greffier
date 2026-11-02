@@ -12,6 +12,9 @@ import (
 	"runtime"
 
 	"fyne.io/systray"
+
+	"github.com/aloth-decideom/greffier/internal/maj"
+	"github.com/aloth-decideom/greffier/internal/systeme"
 )
 
 const iconeDisponible = true
@@ -40,22 +43,22 @@ func lancerIcone(s *Serveur) {
 		adresse := systray.AddMenuItem("Adresse : "+s.origin+"/", "À taper dans le navigateur")
 		adresse.Disable()
 		systray.AddSeparator()
-		maj := systray.AddMenuItem("", "")
-		maj.Hide() // affiché si GitHub annonce une nouvelle version
+		avisMaj := systray.AddMenuItem("", "")
+		avisMaj.Hide() // affiché si GitHub annonce une nouvelle version
 		arreter := systray.AddMenuItem("Arrêter Greffier", "Termine les écritures en cours puis arrête l'application")
 
 		s.siOuverture(func(titre string) {
 			ouvrir.SetTitle("Ouvrir l'atelier : " + titre)
 			accueil.Show()
 		})
-		systray.SetOnTapped(func() { ouvrirNavigateur(s.adressePage()) }) // clic gauche
+		systray.SetOnTapped(func() { systeme.OuvrirNavigateur(s.adressePage()) }) // clic gauche
 		// Avis de nouvelle version, mis à jour à chaque vérification (toutes les 4 h)
 		go func() {
 			<-s.Maj.Pret()
 			for {
 				if info := s.Maj.Info(); info.Nouvelle && !s.majEnCours.Load() {
-					titreMaj(maj, info)
-					maj.Show()
+					titreMaj(avisMaj, info)
+					avisMaj.Show()
 				}
 				<-s.Maj.Changements()
 			}
@@ -64,27 +67,27 @@ func lancerIcone(s *Serveur) {
 		go func() {
 			for {
 				select {
-				case <-maj.ClickedCh:
+				case <-avisMaj.ClickedCh:
 					info := s.Maj.Info()
 					if !info.Auto {
-						ouvrirNavigateur(info.Page)
+						systeme.OuvrirNavigateur(info.Page)
 						break
 					}
-					maj.SetTitle("Mise à jour en cours…")
-					maj.Disable()
+					avisMaj.SetTitle("Mise à jour en cours…")
+					avisMaj.Disable()
 					go func() {
 						if err := s.mettreAJour(); err != nil && !errors.Is(err, errMajEnCours) {
-							titreMaj(maj, s.Maj.Info())
-							maj.Enable()
-							ouvrirNavigateur(info.Page) // page de la release : téléchargement à la main
+							titreMaj(avisMaj, s.Maj.Info())
+							avisMaj.Enable()
+							systeme.OuvrirNavigateur(info.Page) // page de la release : téléchargement à la main
 						}
 					}()
 				case <-ouvrir.ClickedCh:
-					ouvrirNavigateur(s.adressePage())
+					systeme.OuvrirNavigateur(s.adressePage())
 				case <-accueil.ClickedCh:
-					ouvrirNavigateur(s.origin + "/")
+					systeme.OuvrirNavigateur(s.origin + "/")
 				case <-arreter.ClickedCh:
-					logf("Arrêt demandé depuis l'icône Greffier.")
+					systeme.Logf("Arrêt demandé depuis l'icône Greffier.")
 					s.demanderArret()
 				}
 			}
@@ -92,7 +95,7 @@ func lancerIcone(s *Serveur) {
 	}, nil)
 }
 
-func titreMaj(item *systray.MenuItem, info InfoVersion) {
+func titreMaj(item *systray.MenuItem, info maj.InfoVersion) {
 	if info.Auto {
 		item.SetTitle("⬆ Installer Greffier " + info.Derniere + " et redémarrer")
 		item.SetTooltip("Télécharge la nouvelle version, la vérifie, remplace l'application et la relance")

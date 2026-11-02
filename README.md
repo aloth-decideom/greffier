@@ -32,7 +32,7 @@ Dans les [**Releases**](../../releases), prendre le fichier correspondant à son
 Mode opératoire complet : [`docs/mode-operatoire.md`](docs/mode-operatoire.md).
 
 ### Notes libres (sans `questions.md`)
-Sur la page d'accueil : **✏️ Notes libres**, un titre, **Démarrer**. Greffier crée un dossier daté dans `Documents/Greffier/`, et on prend des notes **page par page**, une par sujet (**N** pour une nouvelle page). La sauvegarde, les photos, les tags et le CR par IA fonctionnent comme pour un atelier, avec un modèle de compte rendu de réunion ([`modele-compte-rendu-libre.md`](modele-compte-rendu-libre.md)).
+Sur la page d'accueil : **✏️ Notes libres**, un titre, **Démarrer**. Greffier crée un dossier daté dans `Documents/Greffier/`, et on prend des notes **page par page**, une par sujet (**N** pour une nouvelle page). La sauvegarde, les photos, les tags et le CR par IA fonctionnent comme pour un atelier, avec un modèle de compte rendu de réunion ([`modele-libre.md`](ressources/compte-rendu/modele-libre.md)).
 
 ### Mettre à jour
 Au démarrage, puis toutes les 4 h tant qu'il reste ouvert, Greffier regarde s'il existe une version plus récente sur GitHub. Si c'est le cas, l'icône Greffier propose **⬆ Installer Greffier vX et redémarrer**, et la page d'accueil **Installer et redémarrer** : Greffier télécharge la nouvelle version, vérifie sa somme de contrôle (`SHA256SUMS.txt` de la release), remplace son propre fichier et redémarre en quelques secondes. Les pages ouvertes continuent d'enregistrer, les notes ne bougent pas.
@@ -115,7 +115,7 @@ La fenêtre **🗣 Voix** montre ensuite, pour chaque voix, quelques phrases de 
 Rien à installer : au premier usage, Greffier télécharge la version officielle de NeMo-Speech.cpp pour le système (Linux, Windows, macOS ; 5 à 7 Mo, depuis le GitHub de NVIDIA) et le modèle (107 Mo, depuis Hugging Face), sommes de contrôle vérifiées, dans le cache de l'utilisateur. Une autre version de `nemo-speech` peut être utilisée : `GREFFIER_NEMO` (son chemin), le PATH, ou un dossier `nemo-speech` à côté de Greffier (`nemo-speech/bin/nemo-speech`).
 
 ## Le compte rendu par IA
-Un prompt commun ([`prompt-compte-rendu.md`](prompt-compte-rendu.md)) et un modèle ([`modele-compte-rendu.md`](modele-compte-rendu.md), ou [`modele-compte-rendu-libre.md`](modele-compte-rendu-libre.md) pour des notes libres) imposent la structure du CR, interdisent d'inventer et font marquer **[À CONFIRMER]** ce qui est ambigu.
+Un prompt commun ([`prompt.md`](ressources/compte-rendu/prompt.md)) et un modèle ([`modele.md`](ressources/compte-rendu/modele.md), ou [`modele-libre.md`](ressources/compte-rendu/modele-libre.md) pour des notes libres) imposent la structure du CR, interdisent d'inventer et font marquer **[À CONFIRMER]** ce qui est ambigu.
 
 1. Page d'atelier → **📝 Compte rendu** (la page suit 3 étapes : transcription s'il y a un enregistrement, rédaction, relecture et PDF) :
    - **✨ Rédiger avec Claude** (si [Claude Code](https://claude.com/claude-code) est installé et connecté) : Greffier lance `claude -p` avec l'abonnement Claude, sans clé API. Claude ne peut que lire les fichiers de `sorties/` (pour décrire les photos) ; le CR s'affiche dans la page et est enregistré dans `sorties/CR-<atelier>.md`. Compter 1 à 3 minutes. Claude Code introuvable alors qu'il est installé : indiquer son chemin dans la variable `GREFFIER_CLAUDE`.
@@ -123,30 +123,35 @@ Un prompt commun ([`prompt-compte-rendu.md`](prompt-compte-rendu.md)) et un mod�
 2. Aperçu A4 avec les photos, [À CONFIRMER] surlignés et comptés.
 3. Corriger, puis **🖨 Imprimer / PDF**. Les corrections sont **enregistrées au fil de la frappe** dans `sorties/CR-<atelier>.md` (💾 en haut de la page). Si la copie gardée par le navigateur diffère du fichier à l'ouverture (fichier modifié à la main, autre poste…), la page demande laquelle garder ; l'autre version, comme la précédente à chaque nouvelle rédaction par Claude, est mise de côté dans `sorties/historique/`.
 
-Avec **Claude Code**, la commande [`/compte-rendu`](.claude/commands/compte-rendu.md) fait tout, jusqu'au PDF ([`cr2pdf.py`](cr2pdf.py), qui nécessite pandoc).
+Avec **Claude Code**, la commande [`/compte-rendu`](.claude/commands/compte-rendu.md) fait tout, jusqu'au PDF ([`scripts/cr2pdf.py`](scripts/cr2pdf.py), qui nécessite pandoc).
 
 > ⚠ Coller des notes client dans un assistant en ligne les transmet à son éditeur : utiliser un compte professionnel et vérifier la compatibilité avec la confidentialité convenue avec le client.
 
 ## Développement
-Go ≥ 1.22, sans dépendance externe. La page (`app/`), la page de choix (`lanceur.html`), le prompt, le modèle et le thème Marp sont **intégrés à l'exécutable** : les modifier nécessite de recompiler.
+Go ≥ 1.22, sans dépendance externe. Tout ce qui est dans `ressources/` (pages, page de choix, prompt et modèles du CR, thème Marp) est **intégré à l'exécutable** : le modifier nécessite de recompiler.
 
 ```sh
 go test ./...                          # tests
 go run . exemple/atelier-exemple       # lancer sans compiler
 go run . --generer exemple/atelier-exemple   # générer les fichiers d'un atelier sans navigateur
-./compiler.sh v1.2.3                   # les 5 binaires dans dist/
+scripts/compiler.sh v1.2.3             # les 5 binaires dans dist/
 ```
 
 | Fichier | Rôle |
 |---|---|
-| `main.go`, `atelier.go`, `serveur.go`, `systeme*.go` | application (serveur local, lecture de `questions.md`, intégration système) |
+| `main.go`, `serveur.go`, `serveur_atelier.go` | démarrage, serveur local : page d'accueil, pages et API d'un atelier |
 | `icone*.go` | icône de la zone de notification |
-| `maj.go`, `majauto.go` | recherche d'une nouvelle version (API GitHub, dernière release), installation et redémarrage |
-| `audio.go`, `transcription.go`, `whisper.go` | enregistrement du son, transcription locale avec whisper.cpp |
-| `voix.go`, `nemo.go` | séparation des voix avec NeMo-Speech.cpp, noms des voix (`voix.json`) |
-| `outils.go` | téléchargement et vérification des outils externes (whisper-cli, nemo-speech) |
-| `ia.go` | rédaction du CR par Claude Code (`claude -p`) |
-| `app/` | page d'atelier, page CR, moteur de notes (`notes-core.js`), charte (`theme.css`), mise en page A4 (`document.css`) |
+| `internal/atelier/` | lecture et écriture de `questions.md`, génération des fichiers de l'atelier (`outil/`, `prompt-cr.md`, `marp/`) |
+| `internal/audio/` | enregistrement du son, segment par segment (`sorties/audio/`) |
+| `internal/transcription/` | transcription locale avec whisper.cpp ; séparation des voix avec NeMo-Speech.cpp, noms des voix (`voix.json`) |
+| `internal/outils/` | téléchargement et vérification des outils externes et de leurs modèles (whisper-cli, nemo-speech) |
+| `internal/compterendu/` | rédaction du CR par Claude Code (`claude -p`), fichier du CR et son historique |
+| `internal/maj/` | recherche d'une nouvelle version (API GitHub, dernière release), installation et redémarrage |
+| `internal/systeme/` | intégration au système (sélecteur de dossier, navigateur, console, ateliers récents), écriture sûre des fichiers |
+| `ressources/app/` | page d'atelier, page CR, moteur de notes (`notes-core.js`), charte (`theme.css`), mise en page A4 (`document.css`) |
+| `ressources/lanceur.html`, `ressources/compte-rendu/`, `ressources/marp/` | page de choix de l'atelier, prompt et modèles du CR, thème des slides |
+| `scripts/` | `compiler.sh` (binaires), `cr2pdf.py` (CR en PDF) |
+| `marp/` | marp-cli, facultatif (`cd marp && npm install`) pour générer `slides.html` |
 | `docs/charte-decideom.md` | charte graphique DecideOm appliquée |
 | `winres/`, `rsrc_windows_*.syso` | icône et propriétés de l'exe Windows ; `tray.ico`, `tray.png` : icône de la zone de notification (barre des menus sur Mac) (régénérer : `go run github.com/tc-hib/go-winres@v0.3.3 simply --icon winres/icon.png --manifest cli --arch amd64,arm64`) |
 | `.github/workflows/binaires.yml` | GitHub Action : tests et binaires à chaque push ; *Release* à chaque étiquette `v*` |

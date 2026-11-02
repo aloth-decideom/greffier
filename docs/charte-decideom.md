@@ -1,7 +1,7 @@
 # Charte graphique DecideOm
 
 Source : modèle Google Slides interne DecideOm (« TemplateDecideOm2026 », slides « Charte graphique »).
-Valeurs reprises dans `app/theme.css` (variables CSS), `app/document.css` (documents A4) et `marp/decideom.css` (slides).
+Valeurs reprises dans `ressources/app/theme.css` (variables CSS), `ressources/app/document.css` (documents A4) et `ressources/marp/decideom.css` (slides).
 
 ## Polices
 | Usage | Police | Couleur | Interligne |
@@ -9,7 +9,7 @@ Valeurs reprises dans `app/theme.css` (variables CSS), `app/document.css` (docum
 | Titres | **Poppins** | gris foncé `#474747` | simple |
 | Contenus | **Open Sans** | gris `#7f7f7f` | simple |
 
-Les deux polices sont embarquées dans `app/fonts/` (sous-ensemble latin, licence OFL) : aucun appel réseau.
+Les deux polices sont embarquées dans `ressources/app/fonts/` (sous-ensemble latin, licence OFL) : aucun appel réseau.
 
 ## Couleurs
 | Rôle | Valeur | Variable CSS |
@@ -27,7 +27,7 @@ Les deux polices sont embarquées dans `app/fonts/` (sous-ensemble latin, licenc
 - **Cartouches blancs** avec ombre douce → classe `.cartouche`.
 - **Filet rose fin** horizontal (`#e8a3a8`) → variable `--filet`.
 - **Numéro de page** en bas à gauche, au format « 05. » ; **logo centré en bas** ; filet rouge en pied de slide.
-- Logos : `app/img/logo-decideom.png` (couleur, fond clair) et `app/img/logo-decideom-blanc.png` (fonds sombres).
+- Logos : `ressources/app/img/logo-decideom.png` (couleur, fond clair) et `ressources/app/img/logo-decideom-blanc.png` (fonds sombres).
 
 ## Écarts assumés
 - Le texte long affiché à l'écran ou projeté (réponses saisies, CR) utilise `#595959` (`--texte-fort`) au lieu de `#7f7f7f` : le gris de la charte est trop clair pour une lecture prolongée ou au vidéoprojecteur.

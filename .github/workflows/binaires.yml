@@ -36,7 +36,7 @@ jobs:
           go test ./...
 
       - name: Compiler
-        run: ./compiler.sh "$VERSION" "windows linux"
+        run: scripts/compiler.sh "$VERSION" "windows linux"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -61,7 +61,7 @@ jobs:
           go test ./...
 
       - name: Compiler
-        run: ./compiler.sh "$VERSION" darwin
+        run: scripts/compiler.sh "$VERSION" darwin
 
       - uses: actions/upload-artifact@v4
         with:

@@ -1,10 +1,10 @@
 # Compile whisper-cli (whisper.cpp) pour macOS 13.3 et après (BLAS récent d'Accelerate), que
 # whisper.cpp ne publie pas, et le publie en pré-release de ce dépôt (ignorée par la mise à jour de
 # Greffier, qui ne regarde que la dernière release) : Greffier le télécharge au premier
-# enregistrement (whisper.go), sommes de contrôle vérifiées.
+# enregistrement (internal/outils/whisper.go), sommes de contrôle vérifiées.
 # Lancement, une fois par version de whisper.cpp (WHISPER_REF) :
 #   git tag outils-whisper-b5454-2 && git push origin outils-whisper-b5454-2   (suffixe : recompilation)
-# puis reporter les sommes de SHA256SUMS.txt dans archivesWhisper (whisper.go).
+# puis reporter les sommes de SHA256SUMS.txt dans archivesWhisper (internal/outils/whisper.go).
 name: whisper-cli macOS
 
 on:

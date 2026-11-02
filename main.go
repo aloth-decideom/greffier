@@ -5,13 +5,12 @@
 //   - régénère outil/, prompt-cr.md et marp/ à partir de questions.md.
 //
 // Usage : double-clic, ou   greffier [dossier-atelier] [--port 8770] [--no-open] [--generer] [--sans-maj]
-// Compilation : voir compiler.sh (ou la GitHub Action « Binaires greffier »).
+// Compilation : voir scripts/compiler.sh (ou la GitHub Action « Binaires greffier »).
 package main
 
 import (
 	"bufio"
 	"context"
-	"embed"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -23,15 +22,18 @@ import (
 	"runtime"
 	"strings"
 	"time"
-)
 
-//go:embed app lanceur.html prompt-compte-rendu.md modele-compte-rendu.md modele-compte-rendu-libre.md marp/decideom.css
-var embedded embed.FS
+	"github.com/aloth-decideom/greffier/internal/atelier"
+	"github.com/aloth-decideom/greffier/internal/maj"
+	"github.com/aloth-decideom/greffier/internal/outils"
+	"github.com/aloth-decideom/greffier/internal/systeme"
+)
 
 var version = "dev" // renseignée à la compilation (-ldflags "-X main.version=…")
 
 func main() {
-	initConsole()
+	systeme.InitConsole()
+	outils.UserAgent = "greffier/" + version
 	port := flag.Int("port", 8770, "port local (garder le même : le navigateur y range ses données)")
 	noOpen := flag.Bool("no-open", false, "ne pas ouvrir le navigateur")
 	generer := flag.Bool("generer", false, "générer les fichiers de l'atelier (outil/, prompt-cr.md, marp/) puis quitter")
@@ -42,13 +44,13 @@ func main() {
 	}
 	flag.Parse()
 	dossier := flag.Arg(0) // aussi rempli quand on glisse un dossier sur l'exécutable
-	nettoyerAncienneVersion()
+	maj.NettoyerAncienneVersion()
 
 	if *generer {
 		if dossier == "" {
 			fatal("--generer demande un dossier d'atelier")
 		}
-		a, warnings, err := LoadAtelier(dossier)
+		a, warnings, err := atelier.Charger(dossier)
 		if err != nil {
 			fatal(err.Error())
 		}
@@ -68,7 +70,7 @@ func main() {
 	base := srv.origin
 
 	var ln net.Listener
-	err := ecouterApresRelance(func() (err error) {
+	err := maj.EcouterApresRelance(func() (err error) {
 		ln, err = net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", *port))
 		return err
 	})
@@ -94,16 +96,16 @@ func main() {
 	url := base + "/"
 	if dossier != "" {
 		if u, notes, err := srv.preparer(dossier); err != nil {
-			logf("⚠ %v", err)
+			systeme.Logf("⚠ %v", err)
 		} else {
 			url = base + u
 			for _, n := range notes {
-				logf("  %s", n)
+				systeme.Logf("  %s", n)
 			}
 		}
 	}
 	if !*noOpen {
-		go func() { time.Sleep(400 * time.Millisecond); ouvrirNavigateur(url) }()
+		go func() { time.Sleep(400 * time.Millisecond); systeme.OuvrirNavigateur(url) }()
 	}
 	if !*sansMaj {
 		go srv.Maj.Surveiller(version)
@@ -112,7 +114,7 @@ func main() {
 	eteint := make(chan struct{})
 	go func() {
 		<-srv.Arret
-		logf("Arrêt demandé : fin des écritures en cours…")
+		systeme.Logf("Arrêt demandé : fin des écritures en cours…")
 		quitterIcone()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -130,14 +132,14 @@ func main() {
 	<-fini
 	<-eteint // Serve rend la main dès le début de Shutdown : on attend la fin des écritures
 	if srv.Relance.Load() {
-		err := relancer()
+		err := maj.Relancer()
 		if err == nil {
-			logf("Nouvelle version lancée.")
+			systeme.Logf("Nouvelle version lancée.")
 			return
 		}
-		logf("⚠ Relance impossible (%v) : relancer Greffier à la main.", err)
+		systeme.Logf("⚠ Relance impossible (%v) : relancer Greffier à la main.", err)
 	}
-	logf("Application arrêtée. Les notes sont enregistrées dans le dossier sorties/ de l'atelier.")
+	systeme.Logf("Application arrêtée. Les notes sont enregistrées dans le dossier sorties/ de l'atelier.")
 	time.Sleep(1200 * time.Millisecond) // le temps de lire le message avant que la fenêtre se ferme
 }
 
@@ -169,7 +171,7 @@ func ouvrirViaInstance(base, dossier string, ouvrir bool) {
 		}
 	}
 	if ouvrir {
-		ouvrirNavigateur(url)
+		systeme.OuvrirNavigateur(url)
 	}
 }
 
