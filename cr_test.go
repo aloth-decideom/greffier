@@ -8,6 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/aloth-decideom/greffier/internal/atelier"
+	"github.com/aloth-decideom/greffier/internal/compterendu"
 )
 
 // Compte rendu relu dans la page : lu et écrit sur le disque, versions écartées gardées dans historique/.
@@ -38,7 +41,7 @@ func TestCompteRenduDisque(t *testing.T) {
 	}
 
 	appel("PUT", `{"markdown":"# Version du navigateur","copie":"Navigateur/../x"}`)
-	if err := mettreDeCoteCR(dir, "avant-claude"); err != nil {
+	if err := compterendu.MettreDeCote(dir, "avant-claude"); err != nil {
 		t.Fatal(err)
 	}
 	copies, _ := filepath.Glob(filepath.Join(dir, "sorties", "historique", "CR-atelier-01_*.md"))
@@ -64,7 +67,7 @@ func TestQuestionsModifiees(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "atelier-02")
 	os.MkdirAll(dir, 0o755)
 	os.WriteFile(filepath.Join(dir, "questions.md"), []byte("---\nclient: Ancien\nautre: garde\n---\n# P\n## A1. S\n- Q: q\n"), 0o644)
-	avant, _, _ := LoadAtelier(dir)
+	avant, _, _ := atelier.Charger(dir)
 	s := NewServeur(8770)
 	appel := func(corps string) int {
 		rec := httptest.NewRecorder()
@@ -74,7 +77,7 @@ func TestQuestionsModifiees(t *testing.T) {
 	if c := appel(`{"meta":{"client":"Nouveau","slug":"pirate"},"parts":[{"title":"P","sections":[{"title":"S","minutes":5,"questions":[{"text":"q2","star":true,"relances":["r"]}]}]}]}`); c != http.StatusOK {
 		t.Fatalf("statut %d", c)
 	}
-	apres, _, err := LoadAtelier(dir)
+	apres, _, err := atelier.Charger(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

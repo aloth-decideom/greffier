@@ -22,6 +22,6 @@ SOFTWARE.
 
 ---
 Composants tiers inclus :
-- Polices Poppins et Open Sans : SIL Open Font License 1.1 (app/fonts/OFL-*.txt).
-- marked (app/marked.min.js) : licence MIT, Christopher Jeffrey (en-tête du fichier).
-- Logo DecideOm (app/img/, winres/) : marque de DecideOm, non couverte par la licence MIT.
+- Polices Poppins et Open Sans : SIL Open Font License 1.1 (ressources/app/fonts/OFL-*.txt).
+- marked (ressources/app/marked.min.js) : licence MIT, Christopher Jeffrey (en-tête du fichier).
+- Logo DecideOm (ressources/app/img/, winres/) : marque de DecideOm, non couverte par la licence MIT.

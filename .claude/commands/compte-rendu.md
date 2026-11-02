@@ -11,5 +11,5 @@ Rédige le compte rendu de l'atelier `$ARGUMENTS`.
    - la transcription de l'enregistrement, si elle existe : `<atelier>/sorties/transcription.md` (produite par Greffier, page « Compte rendu » → « Transcrire »). Elle complète les notes selon la règle 15 du prompt.
 2. **Lis les photos** référencées dans les notes (`photos/…`) pour décrire les schémas, comme le prévoit la règle 9.
 3. **Écris** le compte rendu dans `<atelier>/sorties/CR-<atelier>.md`, dans le même dossier que `notes.md` et `photos/` pour que les liens des images restent valides.
-4. **Convertis en PDF** : `python3 cr2pdf.py <atelier>/sorties/<…>/CR-<atelier>.md --client <client>` (ou la page `outil/cr.html` → Imprimer / PDF).
+4. **Convertis en PDF** : `python3 scripts/cr2pdf.py <atelier>/sorties/<…>/CR-<atelier>.md --client <client>` (ou la page `outil/cr.html` → Imprimer / PDF).
 5. **Rends compte** en quelques lignes : chemin du PDF, nombre de décisions, d'actions et de risques, et la liste des mentions [À CONFIRMER] à faire valider (une ligne chacune, avec la section).

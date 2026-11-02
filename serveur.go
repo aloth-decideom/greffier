@@ -11,13 +11,13 @@ package main
 //   /api/supprimer          supprime définitivement le dossier d'un atelier de la liste
 //   /api/son-visio          Linux : source « Monitor of … » de la sortie audio, pour capter une visio
 //   /api/version            version courante et éventuelle nouvelle version sur GitHub
-//   /api/mettre-a-jour      installe la nouvelle version puis redémarre (majauto.go)
+//   /api/mettre-a-jour      installe la nouvelle version puis redémarre (internal/maj)
 //   /a/<slug>/…             page d'atelier (fichiers intégrés + questions.js lu en direct)
 //   /a/<slug>/api/…         sauvegarde sur disque dans <atelier>/sorties/
-//   /a/<slug>/api/cr-claude compte rendu rédigé par Claude Code (ia.go)
+//   /a/<slug>/api/cr-claude compte rendu rédigé par Claude Code (internal/compterendu)
 //   /a/<slug>/api/questions questions et en-tête modifiés dans la page (questions.md réécrit)
-//   /a/<slug>/api/audio…    enregistrement du son (audio.go) ; api/transcrire : transcription locale (transcription.go)
-//   /a/<slug>/api/voix      séparation des voix après la réunion, noms donnés à l'écoute (voix.go)
+//   /a/<slug>/api/audio…    enregistrement du son (internal/audio) ; api/transcrire : transcription locale (internal/transcription)
+//   /a/<slug>/api/voix      séparation des voix après la réunion, noms donnés à l'écoute (internal/transcription)
 
 import (
 	"context"
@@ -33,11 +33,16 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/aloth-decideom/greffier/internal/atelier"
+	"github.com/aloth-decideom/greffier/internal/maj"
+	"github.com/aloth-decideom/greffier/internal/systeme"
+	"github.com/aloth-decideom/greffier/internal/transcription"
+	"github.com/aloth-decideom/greffier/ressources"
 )
 
 const maxBody = 30 << 20
@@ -53,19 +58,19 @@ type Serveur struct {
 	ouverture  func(titre string) // prévient l'icône de notification qu'un atelier est ouvert
 	Arret      chan struct{}      // fermé quand la page ou l'icône demande l'arrêt de l'application
 	arretOnce  sync.Once
-	Maj        verificateurMaj
+	Maj        *maj.Verificateur
 	majEnCours atomic.Bool
 	crEnCours  atomic.Bool // une rédaction par Claude à la fois
-	Transcr    transcripteur
-	Voix       separateur
+	Transcr    transcription.Transcripteur
+	Voix       transcription.Separateur
 	Relance    atomic.Bool // nouvelle version installée : main la lance après l'arrêt
 }
 
 func NewServeur(port int) *Serveur {
 	s := &Serveur{origin: fmt.Sprintf("http://127.0.0.1:%d", port), ateliers: map[string]string{}, Arret: make(chan struct{}),
-		Maj: verificateurMaj{info: InfoVersion{Version: version}}}
-	s.Transcr.disque = &s.mu
-	s.Voix.disque = &s.mu
+		Maj: maj.NouveauVerificateur(version)}
+	s.Transcr.Disque = &s.mu
+	s.Voix.Disque = &s.mu
 	return s
 }
 
@@ -81,7 +86,7 @@ func (s *Serveur) Handler() http.Handler {
 	mux.HandleFunc("/api/oublier", s.oublier)
 	mux.HandleFunc("/api/supprimer", s.supprimer)
 	mux.HandleFunc("/api/son-visio", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"moniteur": moniteurSortieAudio()})
+		writeJSON(w, http.StatusOK, map[string]string{"moniteur": systeme.MoniteurSortieAudio()})
 	})
 	mux.HandleFunc("/api/version", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, http.StatusOK, s.Maj.Info()) })
 	mux.HandleFunc("/api/mettre-a-jour", s.majHTTP)
@@ -103,69 +108,40 @@ func erreur(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"erreur": msg})
 }
 
+func repondreOK(w http.ResponseWriter) { writeJSON(w, http.StatusOK, map[string]bool{"ok": true}) }
+
+// postAutorise : requête POST venue d'une page de Greffier ; sinon répond 403 et renvoie false.
+func (s *Serveur) postAutorise(w http.ResponseWriter, r *http.Request) bool {
+	if r.Method != http.MethodPost || !s.memeOrigine(r) {
+		erreur(w, http.StatusForbidden, "refusé")
+		return false
+	}
+	return true
+}
+
+// servirRessource : fichier intégré app/<nom> (page, charte, polices, logos).
+func servirRessource(w http.ResponseWriter, r *http.Request, nom string) {
+	data, err := fs.ReadFile(ressources.FS, "app/"+nom)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if t := mime.TypeByExtension(path.Ext(nom)); t != "" {
+		w.Header().Set("Content-Type", t)
+	}
+	_, _ = w.Write(data)
+}
+
 // Empêche une autre page web ouverte dans le navigateur d'écrire via ce serveur.
 func (s *Serveur) memeOrigine(r *http.Request) bool {
 	o := r.Header.Get("Origin")
 	return o == "" || o == s.origin || o == strings.Replace(s.origin, "127.0.0.1", "localhost", 1)
 }
 
-// Compte rendu de l'atelier : rédigé par Claude, puis relu et corrigé dans la page cr.html.
-func fichierCR(dir string) string {
-	return filepath.Join(dir, "sorties", "CR-"+filepath.Base(dir)+".md")
-}
-
-// Copie d'une version du compte rendu dans sorties/historique/ (origine : avant-claude, navigateur…).
-func copieCR(dir, md, origine string) error {
-	origine = regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(strings.ToLower(origine), "")
-	nom := fmt.Sprintf("CR-%s_%s_%s.md", filepath.Base(dir), time.Now().Format("2006-01-02_15h04m05"), origine)
-	return writeAtomic(filepath.Join(dir, "sorties", "historique", nom), []byte(md+"\n"))
-}
-
-// Met de côté le compte rendu actuel (s'il existe) avant de le remplacer.
-func mettreDeCoteCR(dir, origine string) error {
-	data, err := os.ReadFile(fichierCR(dir))
-	if err != nil || strings.TrimSpace(string(data)) == "" {
-		return nil
-	}
-	return copieCR(dir, strings.TrimSuffix(string(data), "\n"), origine)
-}
-
-// Écrit dans un fichier temporaire puis remplace : jamais de fichier à moitié écrit.
-func writeAtomic(p string, data []byte) error {
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
-	}
-	tmp := p + ".tmp"
-	f, err := os.Create(tmp)
-	if err != nil {
-		return err
-	}
-	if _, err = f.Write(data); err == nil {
-		err = f.Sync()
-	}
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err != nil {
-		os.Remove(tmp)
-		return err
-	}
-	return os.Rename(tmp, p)
-}
-
 // ---------------------------------------------------------------- lanceur
 
 func (s *Serveur) statique(w http.ResponseWriter, r *http.Request) {
-	clean, ok := strings.CutPrefix(path.Clean(r.URL.Path), "/static/")
-	data, err := fs.ReadFile(embedded, "app/"+clean)
-	if !ok || err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	if t := mime.TypeByExtension(path.Ext(clean)); t != "" {
-		w.Header().Set("Content-Type", t)
-	}
-	_, _ = w.Write(data)
+	servirRessource(w, r, strings.TrimPrefix(path.Clean(r.URL.Path), "/static/"))
 }
 
 func (s *Serveur) lanceur(w http.ResponseWriter, r *http.Request) {
@@ -173,7 +149,7 @@ func (s *Serveur) lanceur(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	page, _ := embedded.ReadFile("lanceur.html")
+	page, _ := ressources.Lire("lanceur.html")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = w.Write(page)
@@ -192,7 +168,7 @@ type infoAtelier struct {
 
 func decrire(dir string, recent bool) infoAtelier {
 	info := infoAtelier{Chemin: dir, Nom: filepath.Base(dir), Recent: recent}
-	a, _, err := LoadAtelier(dir)
+	a, _, err := atelier.Charger(dir)
 	if err != nil {
 		info.Erreur = err.Error()
 		return info
@@ -205,13 +181,13 @@ func decrire(dir string, recent bool) infoAtelier {
 // ateliersConnus : les récents (encore présents), puis les ateliers trouvés à proximité.
 func ateliersConnus() (recents, trouves []string) {
 	vus := map[string]bool{}
-	for _, d := range chargerRecents() {
+	for _, d := range systeme.ChargerRecents() {
 		if _, err := os.Stat(filepath.Join(d, "questions.md")); err == nil && !vus[d] {
 			vus[d] = true
 			recents = append(recents, d)
 		}
 	}
-	for _, base := range dossiersDeRecherche() {
+	for _, base := range systeme.DossiersDeRecherche() {
 		entries, _ := os.ReadDir(base)
 		for _, e := range entries {
 			d := filepath.Join(base, e.Name())
@@ -236,14 +212,13 @@ func (s *Serveur) listeAteliers(w http.ResponseWriter, r *http.Request) {
 	for _, d := range trouves {
 		liste = append(liste, decrire(d, false))
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ateliers": liste, "systeme": nomSysteme(), "dossierNotes": dossierNotesParDefaut()})
+	writeJSON(w, http.StatusOK, map[string]any{"ateliers": liste, "systeme": systeme.NomSysteme(), "dossierNotes": systeme.DossierNotesParDefaut()})
 }
 
 // atelierDeLaListe lit le chemin envoyé par la page et vérifie qu'il s'agit bien d'un atelier
 // affiché dans la liste : les actions du menu « ⋯ » ne touchent à rien d'autre.
 func (s *Serveur) atelierDeLaListe(w http.ResponseWriter, r *http.Request) (string, bool) {
-	if r.Method != http.MethodPost || !s.memeOrigine(r) {
-		erreur(w, http.StatusForbidden, "refusé")
+	if !s.postAutorise(w, r) {
 		return "", false
 	}
 	var req struct{ Chemin string }
@@ -266,11 +241,11 @@ func (s *Serveur) montrer(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := ouvrirDossier(dir); err != nil {
+	if err := systeme.OuvrirDossier(dir); err != nil {
 		erreur(w, http.StatusOK, "impossible d'ouvrir le dossier : "+err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	repondreOK(w)
 }
 
 func (s *Serveur) oublier(w http.ResponseWriter, r *http.Request) {
@@ -278,11 +253,11 @@ func (s *Serveur) oublier(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := retirerRecent(dir); err != nil {
+	if err := systeme.RetirerRecent(dir); err != nil {
 		erreur(w, http.StatusOK, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	repondreOK(w)
 }
 
 func (s *Serveur) supprimer(w http.ResponseWriter, r *http.Request) {
@@ -292,7 +267,7 @@ func (s *Serveur) supprimer(w http.ResponseWriter, r *http.Request) {
 	}
 	// Garde-fou : jamais un dossier racine, le dossier personnel ou un dossier où l'on cherche les ateliers.
 	home, _ := os.UserHomeDir()
-	interdits := append(dossiersDeRecherche(), home)
+	interdits := append(systeme.DossiersDeRecherche(), home)
 	for _, x := range interdits {
 		if x != "" && filepath.Clean(x) == filepath.Clean(dir) {
 			erreur(w, http.StatusOK, "suppression refusée pour ce dossier : "+dir)
@@ -316,18 +291,17 @@ func (s *Serveur) supprimer(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	s.amu.Unlock()
-	_ = retirerRecent(dir)
+	_ = systeme.RetirerRecent(dir)
 	if err != nil {
 		erreur(w, http.StatusOK, "suppression incomplète : "+err.Error())
 		return
 	}
-	logf("Atelier supprimé : %s", dir)
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	systeme.Logf("Atelier supprimé : %s", dir)
+	repondreOK(w)
 }
 
 func (s *Serveur) parcourir(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost || !s.memeOrigine(r) {
-		erreur(w, http.StatusForbidden, "refusé")
+	if !s.postAutorise(w, r) {
 		return
 	}
 	var req struct{ Notes bool } // notes libres : choix du dossier où les créer
@@ -336,7 +310,7 @@ func (s *Serveur) parcourir(w http.ResponseWriter, r *http.Request) {
 	if req.Notes {
 		invite = "Choisir où créer les notes libres"
 	}
-	dir, err := choisirDossier(invite, req.Notes)
+	dir, err := systeme.ChoisirDossier(invite, req.Notes)
 	if err != nil {
 		erreur(w, http.StatusOK, err.Error())
 		return
@@ -345,8 +319,7 @@ func (s *Serveur) parcourir(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Serveur) ouvrir(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost || !s.memeOrigine(r) {
-		erreur(w, http.StatusForbidden, "refusé")
+	if !s.postAutorise(w, r) {
 		return
 	}
 	var req struct {
@@ -366,8 +339,7 @@ func (s *Serveur) ouvrir(w http.ResponseWriter, r *http.Request) {
 
 // notesLibres : crée <base>/<date>-<titre>/ (base par défaut : Documents/Greffier) puis l'ouvre.
 func (s *Serveur) notesLibres(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost || !s.memeOrigine(r) {
-		erreur(w, http.StatusForbidden, "refusé")
+	if !s.postAutorise(w, r) {
 		return
 	}
 	var req struct{ Titre, Client, Base string }
@@ -377,9 +349,9 @@ func (s *Serveur) notesLibres(w http.ResponseWriter, r *http.Request) {
 	}
 	base := strings.Trim(strings.TrimSpace(req.Base), `"`)
 	if base == "" {
-		base = dossierNotesParDefaut()
+		base = systeme.DossierNotesParDefaut()
 	}
-	dir, err := CreerNotesLibres(base, req.Titre, req.Client, time.Now())
+	dir, err := atelier.CreerNotesLibres(base, req.Titre, req.Client, time.Now())
 	if err != nil {
 		erreur(w, http.StatusOK, "création impossible : "+err.Error())
 		return
@@ -395,26 +367,24 @@ func (s *Serveur) notesLibres(w http.ResponseWriter, r *http.Request) {
 // arreter : bouton « Arrêter l'application » des pages. L'arrêt effectif (qui laisse finir
 // les écritures en cours) est fait par main à la fermeture du canal Arret.
 func (s *Serveur) arreter(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost || !s.memeOrigine(r) {
-		erreur(w, http.StatusForbidden, "refusé")
+	if !s.postAutorise(w, r) {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+	repondreOK(w)
 	s.demanderArret()
 }
 
 func (s *Serveur) demanderArret() { s.arretOnce.Do(func() { close(s.Arret) }) }
 
 func (s *Serveur) majHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost || !s.memeOrigine(r) {
-		erreur(w, http.StatusForbidden, "refusé")
+	if !s.postAutorise(w, r) {
 		return
 	}
 	if err := s.mettreAJour(); err != nil {
 		erreur(w, http.StatusOK, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true}) // l'arrêt attend la fin de cette réponse
+	repondreOK(w) // l'arrêt attend la fin de cette réponse
 }
 
 var errMajEnCours = errors.New("mise à jour déjà en cours")
@@ -429,20 +399,20 @@ func (s *Serveur) mettreAJour() error {
 		s.majEnCours.Store(false)
 		return errors.New("mise à jour automatique impossible ici : télécharger la nouvelle version")
 	}
-	logf("Mise à jour vers %s : téléchargement…", info.Derniere)
-	exe, err := executable()
+	systeme.Logf("Mise à jour vers %s : téléchargement…", info.Derniere)
+	exe, err := systeme.Executable()
 	if err == nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		err = installerMaj(ctx, info, exe)
+		err = maj.Installer(ctx, info, exe)
 		cancel()
 	}
 	if err != nil {
-		s.Maj.sansAuto() // ensuite, seulement le téléchargement à la main
+		s.Maj.SansAuto() // ensuite, seulement le téléchargement à la main
 		s.majEnCours.Store(false)
-		logf("⚠ Mise à jour impossible : %v", err)
+		systeme.Logf("⚠ Mise à jour impossible : %v", err)
 		return err
 	}
-	logf("Greffier %s installé : redémarrage.", info.Derniere)
+	systeme.Logf("Greffier %s installé : redémarrage.", info.Derniere)
 	s.Relance.Store(true)
 	s.demanderArret()
 	return nil
@@ -478,7 +448,7 @@ func (s *Serveur) preparer(dir string) (string, []string, error) {
 	if st, err := os.Stat(abs); err != nil || !st.IsDir() {
 		return "", nil, fmt.Errorf("dossier introuvable : %s", abs)
 	}
-	a, warnings, err := LoadAtelier(abs)
+	a, warnings, err := atelier.Charger(abs)
 	if err != nil {
 		return "", nil, err
 	}
@@ -499,13 +469,13 @@ func (s *Serveur) preparer(dir string) (string, []string, error) {
 	if ouverture != nil {
 		ouverture(titre)
 	}
-	ajouterRecent(abs)
+	systeme.AjouterRecent(abs)
 	_, nq := a.QuestionCount()
 	quoi := fmt.Sprintf("%d questions", nq)
 	if a.Mode == "libre" {
 		quoi = "notes libres"
 	}
-	logf("Atelier ouvert : %s (%s) — sauvegarde dans %s", abs, quoi, filepath.Join(abs, "sorties"))
+	systeme.Logf("Atelier ouvert : %s (%s) — sauvegarde dans %s", abs, quoi, filepath.Join(abs, "sorties"))
 	return url, append(warnings, notes...), nil
 }
 
@@ -517,8 +487,8 @@ func (s *Serveur) dossierDe(slug string) string {
 	if ok {
 		return dir
 	}
-	for _, d := range chargerRecents() {
-		if a, _, err := LoadAtelier(d); err == nil && a.Slug == slug {
+	for _, d := range systeme.ChargerRecents() {
+		if a, _, err := atelier.Charger(d); err == nil && a.Slug == slug {
 			s.amu.Lock()
 			s.ateliers[slug] = d
 			s.amu.Unlock()
@@ -526,422 +496,4 @@ func (s *Serveur) dossierDe(slug string) string {
 		}
 	}
 	return ""
-}
-
-// ---------------------------------------------------------------- pages et API d'un atelier
-
-func (s *Serveur) atelier(w http.ResponseWriter, r *http.Request) {
-	rest := strings.TrimPrefix(r.URL.Path, "/a/")
-	slug, sub, _ := strings.Cut(rest, "/")
-	dir := s.dossierDe(slug)
-	if dir == "" {
-		http.Redirect(w, r, "/?inconnu="+slug, http.StatusFound)
-		return
-	}
-	if strings.HasPrefix(sub, "api/") {
-		s.api(w, r, dir, strings.TrimPrefix(sub, "api/"))
-		return
-	}
-	if sub == "" {
-		sub = "atelier.html"
-	}
-	w.Header().Set("Cache-Control", "no-store")
-	if sub == "questions.js" { // lu en direct : modifier questions.md puis recharger la page suffit
-		a, _, err := LoadAtelier(dir)
-		if err != nil {
-			w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-			msg, _ := json.Marshal("questions.md : " + err.Error())
-			fmt.Fprintf(w, "alert(%s);", msg)
-			return
-		}
-		w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-		_, _ = w.Write(a.QuestionsJS())
-		return
-	}
-	clean := path.Clean("/" + sub)[1:]
-	data, err := fs.ReadFile(embedded, "app/"+clean)
-	if err != nil {
-		http.NotFound(w, r)
-		return
-	}
-	if t := mime.TypeByExtension(path.Ext(clean)); t != "" {
-		w.Header().Set("Content-Type", t)
-	}
-	_, _ = w.Write(data)
-}
-
-func (s *Serveur) api(w http.ResponseWriter, r *http.Request, dir, route string) {
-	sorties := filepath.Join(dir, "sorties")
-	if r.Method != http.MethodGet && !s.memeOrigine(r) {
-		erreur(w, http.StatusForbidden, "origine refusée")
-		return
-	}
-	switch {
-	case route == "ping":
-		writeJSON(w, http.StatusOK, map[string]string{"app": "decideom-atelier", "dossier": sorties})
-
-	case route == "session" && r.Method == http.MethodGet:
-		var session any
-		if raw, err := os.ReadFile(filepath.Join(sorties, "session.json")); err == nil {
-			_ = json.Unmarshal(raw, &session)
-		}
-		photos := []string{}
-		entries, _ := os.ReadDir(filepath.Join(sorties, "photos"))
-		for _, e := range entries {
-			if !e.IsDir() && rePhoto.MatchString(e.Name()) {
-				photos = append(photos, e.Name())
-			}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"session": session, "photos": photos})
-
-	case route == "save" && r.Method == http.MethodPost:
-		var p struct {
-			Session        json.RawMessage `json:"session"`
-			Markdown       string          `json:"markdown"`
-			Historique     any             `json:"historique"`
-			HistoriqueSeul bool            `json:"historique_seul"`
-		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, maxBody)).Decode(&p); err != nil || len(p.Session) == 0 {
-			erreur(w, http.StatusBadRequest, "données illisibles")
-			return
-		}
-		var pretty any
-		_ = json.Unmarshal(p.Session, &pretty)
-		session, _ := json.MarshalIndent(pretty, "", " ")
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		if !p.HistoriqueSeul {
-			if err := writeAtomic(filepath.Join(sorties, "session.json"), session); err != nil {
-				erreur(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			if err := writeAtomic(filepath.Join(sorties, "notes.md"), []byte(p.Markdown)); err != nil {
-				erreur(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-		}
-		if label, ok := p.Historique.(string); ok && label != "" {
-			label = regexp.MustCompile(`[^a-z0-9-]`).ReplaceAllString(strings.ToLower(label), "")
-			if len(label) > 30 {
-				label = label[:30]
-			}
-			name := fmt.Sprintf("session_%s_%s.json", time.Now().Format("2006-01-02_15h04"), label)
-			if err := writeAtomic(filepath.Join(sorties, "historique", name), session); err != nil {
-				erreur(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "heure": time.Now().Format("15:04:05")})
-
-	case route == "claude" && r.Method == http.MethodGet:
-		writeJSON(w, http.StatusOK, map[string]bool{"disponible": cheminClaude() != ""})
-
-	case route == "cr-claude" && r.Method == http.MethodPost:
-		var p struct{ Texte string }
-		if err := json.NewDecoder(io.LimitReader(r.Body, maxBody)).Decode(&p); err != nil || strings.TrimSpace(p.Texte) == "" {
-			erreur(w, http.StatusBadRequest, "données illisibles")
-			return
-		}
-		if !s.crEnCours.CompareAndSwap(false, true) {
-			erreur(w, http.StatusOK, "une rédaction est déjà en cours")
-			return
-		}
-		defer s.crEnCours.Store(false)
-		logf("Compte rendu : rédaction par Claude en cours…")
-		md, err := redigerAvecClaude(r.Context(), sorties, p.Texte)
-		if err != nil {
-			logf("⚠ Compte rendu : %v", err)
-			erreur(w, http.StatusOK, err.Error())
-			return
-		}
-		fichier := fichierCR(dir)
-		s.mu.Lock()
-		err = mettreDeCoteCR(dir, "avant-claude") // les corrections faites dans la page ne sont jamais perdues
-		if err == nil {
-			err = writeAtomic(fichier, []byte(md+"\n"))
-		}
-		s.mu.Unlock()
-		if err != nil {
-			erreur(w, http.StatusOK, "compte rendu rédigé mais non enregistré : "+err.Error())
-			return
-		}
-		logf("Compte rendu enregistré : %s", fichier)
-		writeJSON(w, http.StatusOK, map[string]string{"markdown": md, "fichier": fichier})
-
-	// Compte rendu relu dans la page cr.html : enregistré sur le disque au fil de la frappe.
-	case route == "cr" && r.Method == http.MethodGet:
-		fichier := fichierCR(dir)
-		res := map[string]any{"markdown": "", "fichier": fichier, "modifie": int64(0)}
-		if data, err := os.ReadFile(fichier); err == nil {
-			res["markdown"] = strings.TrimSuffix(string(data), "\n")
-			if st, err := os.Stat(fichier); err == nil {
-				res["modifie"] = st.ModTime().UnixMilli()
-			}
-		}
-		writeJSON(w, http.StatusOK, res)
-
-	// Questions et en-tête modifiés dans la page : questions.md réécrit, l'ancien gardé dans sorties/historique/.
-	case route == "questions" && r.Method == http.MethodPut:
-		var p struct {
-			Meta  map[string]string `json:"meta"`
-			Parts []Part            `json:"parts"`
-		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, maxBody)).Decode(&p); err != nil {
-			erreur(w, http.StatusBadRequest, "données illisibles")
-			return
-		}
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		ancien, _, err := LoadAtelier(dir)
-		if err != nil {
-			erreur(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		if ancien.Mode == "libre" {
-			erreur(w, http.StatusBadRequest, "notes libres : pas de questions à modifier")
-			return
-		}
-		meta := map[string]string{}
-		for k, v := range ancien.Meta {
-			meta[k] = v
-		}
-		for k, v := range p.Meta {
-			if k != "mode" && k != "slug" {
-				meta[k] = v
-			}
-		}
-		client := orDefault(nettoyerChamp(meta["client"]), "client")
-		if slugify(client+"-"+filepath.Base(dir)) != ancien.Slug {
-			meta["slug"] = ancien.Slug // client renommé : même adresse de page, mêmes notes dans le navigateur
-		}
-		texte, err := FormatQuestions(meta, p.Parts)
-		if err == nil {
-			_, _, _, err = ParseQuestions(texte)
-		}
-		if err != nil {
-			erreur(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		fichier := filepath.Join(dir, "questions.md")
-		if data, err := os.ReadFile(fichier); err == nil {
-			nom := fmt.Sprintf("questions_%s.md", time.Now().Format("2006-01-02_15h04m05"))
-			if err := writeAtomic(filepath.Join(sorties, "historique", nom), data); err != nil {
-				erreur(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-		}
-		if err := writeAtomic(fichier, []byte(texte)); err != nil {
-			erreur(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		logf("Questions modifiées depuis la page : %s", fichier)
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "heure": time.Now().Format("15:04:05")})
-
-	case route == "cr" && r.Method == http.MethodPut:
-		// copie : version écartée par l'utilisateur (navigateur ≠ disque), gardée dans sorties/historique/
-		var p struct {
-			Markdown string `json:"markdown"`
-			Copie    string `json:"copie"`
-		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, maxBody)).Decode(&p); err != nil {
-			erreur(w, http.StatusBadRequest, "données illisibles")
-			return
-		}
-		s.mu.Lock()
-		var err error
-		if p.Copie != "" {
-			err = copieCR(dir, p.Markdown, p.Copie)
-		} else {
-			err = writeAtomic(fichierCR(dir), []byte(p.Markdown+"\n"))
-		}
-		s.mu.Unlock()
-		if err != nil {
-			erreur(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "heure": time.Now().Format("15:04:05")})
-
-	case route == "audio" && r.Method == http.MethodGet:
-		segments := listerSegments(sorties)
-		total := 0.0
-		for _, sg := range segments {
-			total += sg.Secondes
-		}
-		_, errT := os.Stat(filepath.Join(sorties, "transcription.md"))
-		writeJSON(w, http.StatusOK, map[string]any{"segments": segments, "secondes": total, "whisper": whisperDisponible(),
-			"transcription": errT == nil, "etat": s.Transcr.Etat(dir)})
-
-	case route == "audio" && r.Method == http.MethodDelete:
-		if _, err := os.Stat(filepath.Join(sorties, "transcription.md")); err != nil {
-			erreur(w, http.StatusOK, "transcrire l'enregistrement avant de supprimer l'audio")
-			return
-		}
-		if s.Transcr.occupe() {
-			erreur(w, http.StatusOK, "transcription en cours")
-			return
-		}
-		s.mu.Lock()
-		err := supprimerAudio(sorties)
-		s.mu.Unlock()
-		if err != nil {
-			erreur(w, http.StatusOK, err.Error())
-			return
-		}
-		logf("Audio déplacé dans %s", filepath.Join(dossierAudio(sorties), "supprimes"))
-		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-
-	case strings.HasPrefix(route, "audio/"):
-		seg, fin, _ := strings.Cut(strings.TrimPrefix(route, "audio/"), "/")
-		var err error
-		switch {
-		case fin == "" && r.Method == http.MethodPut:
-			data, rerr := io.ReadAll(io.LimitReader(r.Body, maxBody))
-			if rerr != nil {
-				erreur(w, http.StatusBadRequest, rerr.Error())
-				return
-			}
-			voies := 1 // 2 : stéréo entrelacée, micro + son de la visio
-			if r.URL.Query().Get("voies") == "2" {
-				voies = 2
-			}
-			s.mu.Lock()
-			err = ajouterAudio(sorties, seg, data, voies)
-			s.mu.Unlock()
-			if err == nil && !transcriptionDirecteDesactivee && whisperDisponible() {
-				_ = s.Transcr.Lancer(dir, s.Arret) // transcription au fil de l'enregistrement (sans effet si déjà lancée)
-			}
-		case fin == "extrait" && r.Method == http.MethodGet:
-			q := r.URL.Query()
-			debut, _ := strconv.ParseFloat(q.Get("debut"), 64)
-			finExtrait, _ := strconv.ParseFloat(q.Get("fin"), 64)
-			voie, _ := strconv.Atoi(q.Get("voie"))
-			s.mu.Lock()
-			wav, err := extraitAudio(sorties, seg, debut, finExtrait, voie)
-			s.mu.Unlock()
-			if err != nil {
-				erreur(w, http.StatusNotFound, err.Error())
-				return
-			}
-			w.Header().Set("Content-Type", "audio/wav")
-			w.Write(wav)
-			return
-		case fin == "fin" && r.Method == http.MethodPost:
-			s.mu.Lock()
-			err = finaliserWAV(sorties, seg)
-			s.mu.Unlock()
-			s.Transcr.Reveiller()
-		default:
-			erreur(w, http.StatusMethodNotAllowed, "méthode non permise")
-			return
-		}
-		if err != nil {
-			erreur(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-
-	case route == "voix" && r.Method == http.MethodGet:
-		v, analyse := lireVoix(sorties)
-		segments := listerSegments(sorties)
-		nouveaux := 0
-		for _, sg := range segments {
-			if !contient(v.Segments, sg.ID) {
-				nouveaux++
-			}
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"nemo": nemoDisponible(), "etat": s.Voix.Etat(dir), "analyse": analyse,
-			"utiliser": v.Utiliser, "choisi": v.Choisi, "audio": len(segments) > 0, "nouveaux": nouveaux, "voix": resumerVoix(sorties, v)})
-
-	case route == "voix" && r.Method == http.MethodPost:
-		if err := s.Voix.Lancer(dir, s.Arret, &s.Transcr); err != nil {
-			erreur(w, http.StatusOK, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-
-	case route == "voix" && r.Method == http.MethodPut:
-		var p struct {
-			Noms     map[string]string `json:"noms"`
-			Mixtes   map[string]bool   `json:"mixtes"`
-			Utiliser bool              `json:"utiliser"`
-			Choisi   bool              `json:"choisi"` // l'utilisateur a coché lui-même une des deux options
-		}
-		if err := json.NewDecoder(io.LimitReader(r.Body, maxBody)).Decode(&p); err != nil {
-			erreur(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		s.mu.Lock()
-		err := majVoix(dir, p.Noms, p.Mixtes, p.Utiliser, p.Choisi)
-		s.mu.Unlock()
-		if err != nil {
-			erreur(w, http.StatusOK, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-
-	case route == "transcrire" && r.Method == http.MethodPost:
-		if err := s.Transcr.Lancer(dir, s.Arret); err != nil {
-			erreur(w, http.StatusOK, err.Error())
-			return
-		}
-		writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-
-	case route == "transcription.md" && r.Method == http.MethodGet:
-		data, err := os.ReadFile(filepath.Join(sorties, "transcription.md"))
-		if err != nil {
-			erreur(w, http.StatusNotFound, "pas de transcription")
-			return
-		}
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8") // affiché par le navigateur, pas téléchargé
-		_, _ = w.Write(data)
-
-	case strings.HasPrefix(route, "photo/"):
-		name := strings.TrimPrefix(route, "photo/")
-		if !rePhoto.MatchString(name) {
-			erreur(w, http.StatusBadRequest, "nom de photo invalide")
-			return
-		}
-		p := filepath.Join(sorties, "photos", name)
-		switch r.Method {
-		case http.MethodGet:
-			data, err := os.ReadFile(p)
-			if err != nil {
-				erreur(w, http.StatusNotFound, "photo introuvable")
-				return
-			}
-			w.Header().Set("Content-Type", "image/jpeg")
-			_, _ = w.Write(data)
-		case http.MethodPut:
-			data, err := io.ReadAll(io.LimitReader(r.Body, maxBody))
-			if err != nil {
-				erreur(w, http.StatusBadRequest, err.Error())
-				return
-			}
-			s.mu.Lock()
-			err = writeAtomic(p, data)
-			s.mu.Unlock()
-			if err != nil {
-				erreur(w, http.StatusInternalServerError, err.Error())
-				return
-			}
-			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-		case http.MethodDelete: // pas de suppression définitive : la photo part dans photos/supprimees/
-			s.mu.Lock()
-			defer s.mu.Unlock()
-			if _, err := os.Stat(p); err == nil {
-				dest := filepath.Join(sorties, "photos", "supprimees", name)
-				_ = os.MkdirAll(filepath.Dir(dest), 0o755)
-				if err := os.Rename(p, dest); err != nil && !errors.Is(err, fs.ErrNotExist) {
-					erreur(w, http.StatusInternalServerError, err.Error())
-					return
-				}
-			}
-			writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-		default:
-			erreur(w, http.StatusMethodNotAllowed, "méthode non permise")
-		}
-
-	default:
-		erreur(w, http.StatusNotFound, "inconnu")
-	}
 }
