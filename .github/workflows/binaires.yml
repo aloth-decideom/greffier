@@ -56,9 +56,11 @@ jobs:
           cache: false
 
       - name: Vérifier (avec l'icône de la barre des menus)
+        # Édition de liens externe : l'éditeur interne de Go 1.22 n'écrit pas LC_UUID, que dyld exige
+        # désormais (« missing LC_UUID load command ») pour les tests des packages sans cgo.
         run: |
           go vet ./...
-          go test ./...
+          go test -ldflags=-linkmode=external ./...
 
       - name: Compiler
         run: scripts/compiler.sh "$VERSION" darwin
